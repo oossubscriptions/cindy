@@ -55,7 +55,7 @@ function squatState(j, T) {
 // countOn says which arrival completes the rep. manual movements are counted by tapping.
 export const MOVES = {
   pullup: {
-    name: 'Pull-ups', color: '#2f6fdb', countOn: 'B',
+    name: 'Pull-ups', color: '#4a74d9', countOn: 'B',
     tip: 'Count when your mouth rises above your hands, after a full hang with straight arms. Keep the bar and your hands in frame.',
     measure(lm, T) {
       const { s, v } = bestSide(lm, [P.SH, P.EL, P.WR]);
@@ -74,7 +74,7 @@ export const MOVES = {
     },
   },
   pushup: {
-    name: 'Push-ups', color: '#e23b2e', countOn: 'A',
+    name: 'Push-ups', color: '#e8622c', countOn: 'A',
     tip: 'Count when you lock out again after your elbows bend to about 100°, in a plank. Side-on to the camera works best.',
     measure(lm, T) {
       const { s, v } = bestSide(lm, [P.SH, P.EL, P.WR, P.HIP]);
@@ -90,7 +90,7 @@ export const MOVES = {
     },
   },
   squat: {
-    name: 'Air squats', color: '#f0a316', countOn: 'A',
+    name: 'Air squats', color: '#e0a419', countOn: 'A',
     tip: 'Count when you stand up tall after your hips drop to knee height.',
     measure(lm, T) {
       const { s, v } = bestSide(lm, [P.HIP, P.KN, P.AN]);
@@ -116,7 +116,7 @@ export const MOVES = {
     },
   },
   thruster: {
-    name: 'Thrusters', color: '#7c5cd6', countOn: 'A', startFromB: true,
+    name: 'Thrusters', color: '#a23f9a', countOn: 'A', startFromB: true,
     tip: 'Counts when the bar is locked out overhead after a squat to depth. Keep your hands in frame overhead.',
     measure(lm, T) {
       const { s, v } = bestSide(lm, [P.SH, P.EL, P.WR, P.HIP, P.KN, P.AN]);
@@ -158,7 +158,7 @@ export const MOVES = {
     },
   },
   jack: {
-    name: 'Jumping jacks', color: '#f26b1d', countOn: 'B',
+    name: 'Jumping jacks', color: '#3aa0d8', countOn: 'B',
     tip: 'Face the camera. Counts when your hands go overhead and your feet go wide.',
     measure(lm, T) {
       const need = [P.SH, P.WR, P.HIP, P.AN].flat();

@@ -335,8 +335,9 @@ function renderPicker() {
 function renderTitle() {
   $('#wName').textContent = def.name;
   $('#wDesc').textContent = describe(def);
+  $('#wFormat').textContent = def.format === 'fortime' ? `For time · ${def.minutes}-min cap` : `${FORMAT_NAMES[def.format]} · ${def.minutes} min`;
   const best = bestOf(history(), def.id);
-  $('#wBest').textContent = best ? `Best: ${best.score}${best.format === 'emom' ? ' min' : ''}` : '';
+  $('#wBest').textContent = best ? `Best ${best.score}${best.format === 'emom' ? ' min' : ''}` : '';
 }
 function renderTips() {
   const keys = [...new Set(def.seq.map(s => s.key))];
@@ -370,7 +371,7 @@ function renderClock() {
 function renderNow() {
   const w = session, st = w.step, now = $('#now');
   if (w.format === 'emom' && phase === 'done') {
-    now.style.setProperty('--c', '#4a525c');
+    now.style.setProperty('--c', '#9a958a');
     $('#moveName').textContent = 'Finished';
     $('#moveReps').innerHTML = `${w.minutesDone}<small>/${def.minutes}</small>`;
     $('#moveSub').textContent = 'minutes completed';
@@ -378,7 +379,7 @@ function renderNow() {
   }
   if (w.format === 'emom' && w.resting) {
     const left = 60000 - (elapsedMs() % 60000);
-    now.style.setProperty('--c', '#4a525c');
+    now.style.setProperty('--c', '#9a958a');
     $('#moveName').textContent = 'Rest';
     $('#moveReps').innerHTML = `${Math.ceil(left / 1000)}<small>s</small>`;
     $('#moveSub').textContent = `Minute ${w.minute + 1} done · next: ${stepName(w.blocks[(w.minute + 1) % w.blocks.length][0])}`;
@@ -543,7 +544,7 @@ $('#minusBtn').onclick = undoRep;
 $('#resetBtn').onclick = resetWorkout;
 $('#endBtn').onclick = () => {
   if (endArmed) { clearTimeout(endArmed); endArmed = 0; finish(true); return; }
-  endArmed = setTimeout(() => { endArmed = 0; render(); }, 3000); render();
+  endArmed = setTimeout(() => { endArmed = 0; render(); }, 4000); render();
 };
 $('#closeBtn').onclick = () => { $('#modal').hidden = true; };
 $('#modal').onclick = e => { if (e.target.id === 'modal') $('#modal').hidden = true; };
