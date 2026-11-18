@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111317">
+<title>Cindy Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Barlow:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/*
+VOICE  coach's whiteboard: loud numbers, few words, readable from 3 m away
+IDEA   a gym competition scoreboard bolted beside the camera feed
+PICTURE live camera with skeleton overlay; giant clock and rep counter beside it
+COLOUR rig red accent on charcoal/white; one colour per movement (blue pull, red push, amber squat)
+TYPE   Barlow Condensed for numerals and titles, Barlow for text
+LAYOUT stage left, scoreboard right; stacks on phones (stage, then board)
+*/
+:root{color-scheme:light dark;
+  --bg:light-dark(#f4f5f6,#0f1114);--ink:light-dark(#15181c,#eef1f4);--mute:light-dark(#5c636c,#9aa3ad);
+  --panel:light-dark(#ffffff,#181b20);--line:light-dark(#dfe2e6,#2a2f36);--well:light-dark(#eceef1,#22262c);
+  --red:#e23b2e;--pull:#2f6fdb;--push:#e23b2e;--squat:#f0a316;--ok:#23a26d}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Barlow,system-ui,sans-serif;overflow-x:clip}
+h1,h2,.num,.cond{font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;font-weight:700;line-height:1.05}
+h1{font-size:clamp(34px,5vw,52px);margin:0;letter-spacing:.01em}
+h2{font-size:28px;margin:0 0 14px}
+.band{padding:clamp(18px,3vw,40px) max(4vw,16px)}
+.wrap{max-width:1240px;margin:0 auto}
+header.band{background:#111317;color:#f2f4f6;padding-block:18px}
+header .wrap{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px}
+header p{margin:0;color:#b7bec6}
+header b{color:#fff}
+.tag{margin-left:auto;font-size:14px;color:#8d96a0}
+
+.app{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:18px;align-items:start}
+@media(max-width:900px){.app{grid-template-columns:minmax(0,1fr)}}
+
+/* stage */
+.stage{position:relative;background:#0b0c0e;border-radius:14px;overflow:hidden;aspect-ratio:16/9;color:#fff}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.stage.mirror video,.stage.mirror canvas{transform:scaleX(-1)}
+.empty{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:14px;text-align:center;padding:20px;
+  background:radial-gradient(circle at 50% 40%,#23272e,#0b0c0e 70%)}
+.empty p{margin:0;color:#b9c0c8;max-width:34em}
+.chip{position:absolute;top:12px;left:12px;background:rgba(10,12,14,.72);padding:6px 12px;border-radius:99px;font-size:14px;display:flex;gap:8px;align-items:center}
+.dot{width:9px;height:9px;border-radius:50%;background:#888}.dot.on{background:var(--ok)}.dot.warn{background:var(--squat)}
+.live{position:absolute;left:12px;right:12px;bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;justify-content:space-between;pointer-events:none}
+.live .hint{background:rgba(226,59,46,.92);padding:6px 12px;border-radius:8px;font-weight:600}
+.live .hint:empty{display:none}
+.live .meter{background:rgba(10,12,14,.72);padding:6px 12px;border-radius:8px;font-size:14px;margin-left:auto}
+.overlay{position:absolute;inset:0;display:grid;place-content:center;text-align:center;background:rgba(10,12,14,.55);font-size:clamp(90px,18vw,200px)}
+.overlay small{display:block;font-size:22px;font-family:Barlow,sans-serif;font-weight:600}
+.flash{animation:flash .35s ease-out}
+@keyframes flash{from{box-shadow:inset 0 0 0 8px var(--ok)}to{box-shadow:inset 0 0 0 0 transparent}}
+
+/* board */
+.board{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;display:grid;gap:16px}
+.clock{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.clock .num{font-size:clamp(64px,9vw,104px);font-variant-numeric:tabular-nums;white-space:nowrap}
+.clock .num.low{color:var(--red)}
+.lab{font-size:14px;color:var(--mute)}
+.score{text-align:right}.score .num{font-size:44px;white-space:nowrap}
+.now{border-radius:12px;padding:14px 16px;color:#fff;background:var(--c,var(--pull));display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 12px}
+.now .name{font-size:30px}
+.now .reps{font-size:clamp(64px,8vw,88px);grid-row:span 2;font-variant-numeric:tabular-nums;white-space:nowrap}
+.now .reps small{font-size:.45em;opacity:.8}
+.now .sub{opacity:.85;font-size:15px}
+.ladder{display:grid;gap:8px}
+.rung{display:grid;grid-template-columns:7.5em 1fr 3.4em;gap:10px;align-items:center;font-size:15px}
+.rung .bar{height:12px;background:var(--well);border-radius:6px;overflow:hidden}
+.rung .bar i{display:block;height:100%;background:var(--c);transition:width .2s}
+.rung .n{text-align:right;font-variant-numeric:tabular-nums}
+.rung.cur{font-weight:600}
+.controls{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+button,select,input{font:inherit;font-size:16px;color:inherit}
+button{min-height:48px;border-radius:10px;border:1px solid var(--line);background:var(--well);cursor:pointer;font-weight:600;padding:0 14px}
+button:hover{filter:brightness(1.05)}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--pull);outline-offset:2px}
+button:disabled{opacity:.45;cursor:not-allowed}
+.primary{background:var(--red);border-color:var(--red);color:#fff}
+.big{font-family:"Barlow Condensed",sans-serif;font-size:26px}
+.span2{grid-column:span 2}
+.keys{font-size:13px;color:var(--mute);margin:0}
+
+/* lower sections */
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.form label{display:grid;gap:4px;font-size:14px;color:var(--mute)}
+.form .row{grid-column:1/-1;display:flex;align-items:center;gap:10px;color:var(--ink);font-size:16px}
+select,input[type=number]{min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--bg);padding:0 10px;width:100%}
+input[type=checkbox]{width:22px;height:22px;accent-color:var(--red)}
+.tips{margin:0;padding-left:1.2em;display:grid;gap:8px}
+.tips b{font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+th{font-size:13px;color:var(--mute);font-weight:600}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.muted{color:var(--mute)}
+.row-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+.modal{position:fixed;inset:0;background:rgba(5,6,8,.6);display:grid;place-items:center;padding:16px;z-index:9}
+
+.sheet{background:var(--panel);border-radius:16px;padding:22px;width:min(520px,100%);max-height:90vh;overflow:auto}
+.sheet .num{font-size:72px}
+.splits{display:grid;gap:6px;margin:14px 0}
+.split{display:grid;grid-template-columns:4.5em 1fr 4em;gap:8px;align-items:center;font-size:14px}
+.split .bar{height:10px;background:var(--well);border-radius:5px;overflow:hidden}.split .bar i{display:block;height:100%;background:var(--red)}
+.split .r{text-align:right;font-variant-numeric:tabular-nums}
+
+@media(max-width:600px){
+  table{font-size:13px}
+  .controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rung{grid-template-columns:6.5em 1fr 3em}
+  .stage{aspect-ratio:3/4}
+}
+@media(prefers-reduced-motion:reduce){.flash{animation:none}.rung .bar i{transition:none}}
+</style>
+</head>
+<body>
+<header class="band">
+  <div class="wrap">
+    <h1>Cindy</h1>
+    <p id="wodline"><b>20-min AMRAP</b> · 5 pull-ups · 10 push-ups · 15 air squats</p>
+    <span class="tag">Reps counted by camera, on your device</span>
+  </div>
+</header>
+
+<main class="band">
+  <div class="wrap app">
+    <section>
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted></video>
+        <canvas id="canvas"></canvas>
+        <div class="empty" id="empty">
+          <button class="primary big" id="camBtn">Start camera</button>
+          <p>Set your phone or laptop 2–3 m away so your whole body and the pull-up bar are in frame.</p>
+          <p><label style="text-decoration:underline;cursor:pointer">or analyse a recorded video<input type="file" id="fileIn" accept="video/*" hidden></label></p>
+          <p id="camErr" style="color:#ff9b93"></p>
+        </div>
+        <div class="chip" id="chip" hidden><span class="dot" id="dot"></span><span id="status">Starting…</span></div>
+        <div class="live"><span class="hint" id="hint"></span><span class="meter" id="meter" hidden></span></div>
+        <div class="overlay num" id="overlay" hidden></div>
+      </div>
+    </section>
+
+    <section class="board" aria-live="polite">
+      <div class="clock">
+        <div><div class="num" id="clock">20:00</div><div class="lab" id="elapsed">Time remaining</div></div>
+        <div class="score"><div class="num" id="score">0 + 0</div><div class="lab" id="total">rounds + reps · 0 total</div></div>
+      </div>
+      <div class="now" id="now">
+        <div class="name cond" id="moveName">Pull-ups</div>
+        <div class="reps num" id="moveReps">0<small>/5</small></div>
+        <div class="sub" id="moveSub">Round 1</div>
+      </div>
+      <div class="ladder" id="ladder"></div>
+      <div class="controls">
+        <button class="primary span2" id="goBtn">Start workout</button>
+        <button id="endBtn" class="span2" disabled>End</button>
+        <button id="plusBtn" class="big span2" aria-label="Add a rep">+1 rep</button>
+        <button id="minusBtn" class="big" aria-label="Remove a rep">−1</button>
+        <button id="resetBtn">Reset</button>
+      </div>
+      <p class="keys">Keys: Space +1 · Backspace −1 · P pause. Use +1/−1 if the camera misses or adds a rep.</p>
+    </section>
+  </div>
+</main>
+
+<section class="band" style="padding-top:0">
+  <div class="wrap cols">
+    <div class="card">
+      <h2>Settings</h2>
+      <div class="form">
+        <label>Time cap (minutes)<input type="number" id="sMin" min="1" max="60"></label>
+        <label>Counting strictness
+          <select id="sLevel"><option value="strict">Strict</option><option value="standard">Standard</option><option value="lenient">Lenient</option></select></label>
+        <label>Pull-ups per round<input type="number" id="sR0" min="1" max="50"></label>
+        <label>Push-ups per round<input type="number" id="sR1" min="1" max="50"></label>
+        <label>Air squats per round<input type="number" id="sR2" min="1" max="50"></label>
+        <label>Pose model
+          <select id="sModel"><option value="lite">Fast (phones)</option><option value="full">Accurate (laptops)</option></select></label>
+        <label style="grid-column:1/-1">Camera<select id="sCam"><option value="">Default camera</option></select></label>
+        <label class="row"><input type="checkbox" id="sMirror"> Mirror the preview</label>
+        <label class="row"><input type="checkbox" id="sVoice"> Voice coach (movement changes, time calls)</label>
+        <label class="row"><input type="checkbox" id="sCount"> Count reps out loud</label>
+      </div>
+      <div class="row-btns"><button id="miniBtn">Half Cindy (10 min)</button><button id="stdBtn">Standard Cindy</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Set up the camera</h2>
+      <ul class="tips">
+        <li><b>Placement:</b> 2–3 m away at hip height, about 45° to your side. Your head, hands and feet should all be visible, at the bar and on the floor.</li>
+        <li><b>Pull-ups</b> count when your mouth rises above your hands, after a full hang with straight arms.</li>
+        <li><b>Push-ups</b> count when you lock out again after your elbows bend to about 100°. Side-on to the camera works best.</li>
+        <li><b>Air squats</b> count when you stand up tall after your hips drop to knee height.</li>
+        <li>The app moves on to the next movement by itself once you finish the reps for the current one.</li>
+        <li>Video never leaves your device. Pose detection runs in this browser tab.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>History</h2>
+      <div class="scroll"><table><thead><tr><th>Date</th><th class="r">Score</th><th class="r">Reps</th><th class="r">Avg round</th></tr></thead>
+      <tbody id="hist"></tbody></table></div>
+      <p class="muted" id="histEmpty">No workouts yet. Finished workouts are saved in this browser.</p>
+      <div class="row-btns"><button id="clearBtn">Clear history</button></div>
+    </div>
+  </div>
+</section>
+
+<div class="modal" id="modal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="resTitle">
+    <h2 id="resTitle">Workout complete</h2>
+    <div class="num" id="resScore">0 + 0</div>
+    <div class="muted" id="resSub"></div>
+    <div class="splits" id="resSplits"></div>
+    <div class="row-btns"><button class="primary" id="copyBtn">Copy result</button><button id="closeBtn">Close</button></div>
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
