@@ -1,12 +1,13 @@
-# Cindy Tracker
+# Cindy: camera rep counter
 
-A browser app that tracks the CrossFit benchmark **"Cindy"** (20-minute AMRAP of 5 pull-ups, 10 push-ups and 15 air squats) using your camera.
+A browser app that counts your reps through the camera for CrossFit-style workouts. It started with the benchmark **"Cindy"** and now handles any workout.
 
-- Detects your pose on-device (MediaPipe Pose Landmarker, vendored in `vendor/` + `models/`). No video leaves the browser.
-- Counts pull-ups, push-ups and air squats with full range-of-motion checks, and moves on to the next movement by itself.
-- Countdown clock, rounds + reps score, voice coach, round split times, and history saved in the browser.
-- Manual +1 / −1 (or Space / Backspace) to correct any missed or extra reps.
-- Settings: time cap, reps per movement (e.g. half Cindy), counting strictness, fast or accurate model, camera choice.
+- **Benchmarks built in:** Cindy, Fran, Angie, Chelsea, Annie, Murph, 100 Burpees and an alternating leg EMOM.
+- **Build your own:** AMRAP, For time (with rounds) or EMOM (every movement each minute, or alternating), with any mix of movements.
+- **Movements counted by camera:** pull-ups, push-ups, air squats, sit-ups, thrusters, burpees, lunges and jumping jacks, each with a full range-of-motion check.
+- **Tap-counted movements** for things the camera can't judge: runs, double-unders and "other". Use +1, or **Done** to finish the set.
+- Clock that fits the format (countdown, count-up with a cap, or per-minute), voice coach, round or minute splits, and history with personal bests. Everything is saved in the browser.
+- Pose detection runs on the device (MediaPipe Pose Landmarker, vendored in `vendor/` + `models/`). No video leaves the browser.
 - You can also analyse a recorded video file instead of the live camera.
 
 ## Run it
@@ -24,13 +25,18 @@ To use it on a **phone**, host the folder on any HTTPS static host (GitHub Pages
 
 ## Camera setup
 
-Place the camera 2–3 m away at hip height, about 45° to your side, so your head, hands and feet stay in view both at the bar and on the floor.
+Place the camera 2–3 m away at hip height, about 45° to your side, so your head, hands and feet stay in view. Jumping jacks are the exception: face the camera for those. The app shows tips for the movements in the selected workout.
 
 | Movement | Counts a rep when… |
 |---|---|
 | Pull-up | your mouth rises above your hands, after a full hang with straight arms |
 | Push-up | you lock out again after your elbows bend to ~100° (in a plank) |
 | Air squat | you stand up tall after your hips drop to knee height |
+| Sit-up | your shoulders come up over your hips after lying back |
+| Thruster | the bar locks out overhead after a squat to depth |
+| Burpee | you stand back up after your chest goes to the floor |
+| Lunge | you stand tall after the front knee bends to ~100° |
+| Jumping jack | your hands go overhead and your feet go wide |
 
 If counting is too picky or too loose, change **Counting strictness** in Settings.
 
@@ -40,4 +46,4 @@ If counting is too picky or too loose, change **Counting strictness** in Setting
 npm test
 ```
 
-The tests cover rep detection on synthetic poses and the AMRAP score bookkeeping (`counter.js`).
+The tests cover rep detection for every camera movement on synthetic poses, and scoring for all three formats (`counter.js`).
