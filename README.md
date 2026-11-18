@@ -1,4 +1,4 @@
-# Cindy: camera rep counter
+# Rep Sheet: camera rep counter
 
 A browser app that counts your reps through the camera for CrossFit-style workouts. It started with the benchmark **"Cindy"** and now handles any workout.
 
