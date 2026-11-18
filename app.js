@@ -278,7 +278,10 @@ function timerTick() {
   }
   renderClock();
   if (session.resting) renderNow();
+  const sec = Math.floor(el / 1000);
+  if (sec !== lastPaceSec) { lastPaceSec = sec; renderPace(); }
 }
+let lastPaceSec = -1;
 
 async function requestWake() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* not supported */ } }
 function releaseWake() { wakeLock?.release().catch(() => {}); wakeLock = null; }
@@ -327,12 +330,20 @@ function showResult() {
 
 /* ---------- rendering ---------- */
 function renderPicker() {
-  const list = allWorkouts();
-  $('#picker').innerHTML = list.map(w =>
-    `<button class="pick${w.id.startsWith('c-') ? ' custom' : ''}" data-id="${esc(w.id)}" aria-pressed="${w.id === def.id}" ${idle() ? '' : 'disabled'}>${esc(w.name)}</button>`).join('') +
-    `<button class="pick add" data-new="1" ${idle() ? '' : 'disabled'}>+ Build your own</button>`;
+  const dis = idle() ? '' : 'disabled';
+  const btn = w => `<button class="pick" data-id="${esc(w.id)}" aria-pressed="${w.id === def.id}" ${dis}>` +
+    `<svg aria-hidden="true"><use href="#i-${w.format}"/></svg>${esc(w.name)}<span class="fmt">${FORMAT_NAMES[w.format]}</span></button>`;
+  $('#picker').innerHTML = '<div class="grp">Benchmarks</div>' + WORKOUTS.map(btn).join('') +
+    (custom.length ? '<div class="grp">Your workouts</div>' + custom.map(btn).join('') : '') +
+    `<button class="pick add" data-new="1" ${dis}>+ Build your own</button>`;
 }
 function renderTitle() {
+  const now = new Date(), h = now.getHours();
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const wk = history().filter(x => new Date(x.date) >= weekStart).length;
+  $('#wGreet').textContent = `${h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}. ` +
+    now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) +
+    (wk ? ` · ${wk} workout${wk > 1 ? 's' : ''} this week` : '') + ". Today's workout:";
   $('#wName').textContent = def.name;
   $('#wDesc').textContent = describe(def);
   $('#wFormat').textContent = def.format === 'fortime' ? `For time · ${def.minutes}-min cap` : `${FORMAT_NAMES[def.format]} · ${def.minutes} min`;
@@ -342,7 +353,7 @@ function renderTitle() {
 function renderTips() {
   const keys = [...new Set(def.seq.map(s => s.key))];
   $('#tips').innerHTML = '<li><b>Placement:</b> 2–3 m away at hip height, about 45° to your side, so your head, hands and feet stay in view for every movement.</li>' +
-    keys.map(k => `<li><b>${esc(MOVES[k].name)}:</b> ${esc(MOVES[k].tip)}</li>`).join('') +
+    keys.map(k => `<li style="--c:${MOVES[k].color}"><b>${esc(MOVES[k].name)}:</b> ${esc(MOVES[k].tip)}</li>`).join('') +
     '<li>The app moves on to the next movement by itself once you finish its reps.</li>' +
     '<li>Video never leaves your device. Pose detection runs in this browser tab.</li>';
 }
@@ -409,6 +420,8 @@ function render() {
     return `<div class="rung${cur ? ' cur' : ''}" style="--c:${(MOVES[st.key] || MOVES.other).color}"><span>${esc(stepName(st))}</span>` +
       `<span class="bar"><i style="width:${(st.done / st.reps * 100).toFixed(1)}%"></i></span><span class="n">${st.done}/${st.reps}</span></div>`;
   }).join('');
+  $('#ladderTitle').textContent = f === 'emom' ? 'This minute:' : f === 'fortime' && !(w.totalRounds > 1) ? 'The workout:' : 'This round:';
+  renderPace();
   const go = $('#goBtn');
   go.textContent = { idle: 'Start workout', countdown: 'Starting…', running: 'Pause', paused: 'Resume', done: 'Start again' }[phase];
   go.disabled = phase === 'countdown';
@@ -419,8 +432,88 @@ function render() {
   $('#doneBtn').disabled = !canCount;
   $('#minusBtn').disabled = phase === 'idle' || phase === 'countdown' || w.total === 0;
 }
+/* ---------- pace chart ---------- */
+function renderPace() {
+  const svg = $('#paceSvg'), W = svg.clientWidth, H = svg.clientHeight;
+  if (!W || !H) return;
+  const span = phase === 'idle' || phase === 'countdown' ? 0 : elapsedMs();
+  const reps = session.events.filter(e => e.type === 'rep').map(e => e.t);
+  const total = Math.max(durationMs(), span, 1);
+  const bucket = total <= 20 * 60000 ? 30000 : 60000;
+  const pts = [];
+  for (let a = 0; a < span; a += bucket) {
+    const b = Math.min(span, a + bucket);
+    if (b - a < 8000) break; // too short to be a fair rate
+    const c = reps.filter(t => t >= a && t < b).length;
+    pts.push({ t: (a + b) / 2, r: c * 60000 / (b - a), full: b - a === bucket });
+  }
+  const full = pts.filter(p => p.full);
+  const fmtR = r => (r == null ? '–' : r >= 10 ? Math.round(r) : r.toFixed(1));
+  $('#pAvg').textContent = span > 10000 ? fmtR(reps.length * 60000 / span) : '–';
+  $('#pBest').textContent = full.length ? fmtR(Math.max(...full.map(p => p.r))) : '–';
+  $('#pLast').textContent = full.length ? fmtR(full[full.length - 1].r) : '–';
+  const top = 12, bot = 24, right = 6, ph = H - top - bot;
+  const maxR = Math.max(10, ...pts.map(p => p.r)) * 1.15;
+  const X = t => (t / total) * (W - right), Y = r => top + (1 - r / maxR) * ph;
+  const ink = 'rgba(27,26,23,', base = H - bot;
+  let out = `<line x1="0" x2="${W - right}" y1="${base}" y2="${base}" stroke="${ink}.25)" stroke-width="1"/>`;
+  const ticks = W < 360 ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1];
+  const lastX = pts.length ? X(span) : -999;
+  for (const f of ticks) {
+    const x = f * (W - right);
+    if (Math.abs(x - lastX) < 44) continue;
+    out += `<text x="${x}" y="${H - 6}" font-size="12" fill="${ink}.55)" text-anchor="${f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}">${clock(f * total)}</text>`;
+  }
+  if (!pts.length) {
+    out += `<text x="${(W - right) / 2}" y="${top + ph / 2}" font-size="14" fill="${ink}.6)" text-anchor="middle">Your pace line starts once the workout does</text>`;
+  } else {
+    const P = [{ t: 0, r: pts[0].r }, ...pts, { t: span, r: pts[pts.length - 1].r }].map(p => [X(p.t), Y(p.r)]);
+    let d = `M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
+    for (let i = 0; i < P.length - 1; i++) { // Catmull-Rom to Bezier
+      const p0 = P[i - 1] || P[i], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2] || p2;
+      const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6], c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+      d += `C${c1[0].toFixed(1)},${Math.min(base, c1[1]).toFixed(1)} ${c2[0].toFixed(1)},${Math.min(base, c2[1]).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+    }
+    const [lx, ly] = P[P.length - 1];
+    out += `<path d="${d}" fill="none" stroke="#1b1a17" stroke-width="2.5" stroke-linecap="round"/>` +
+      `<line x1="${lx}" x2="${lx}" y1="${ly}" y2="${base}" stroke="#1b1a17" stroke-width="1.2" stroke-dasharray="3 4"/>` +
+      `<circle cx="${lx}" cy="${ly}" r="5" fill="#1b1a17"/>` +
+      `<text x="${Math.min(Math.max(lx, 20), W - right - 20)}" y="${H - 6}" font-size="12" font-weight="700" fill="#1b1a17" text-anchor="middle">${clock(span)}</text>`;
+  }
+  svg.innerHTML = out;
+}
+new ResizeObserver(() => session && renderPace()).observe($('#paceFig'));
+
+/* ---------- training calendar ---------- */
+let calMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+function renderCalendar(hist) {
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  const key = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  const byDay = new Map();
+  for (const h of hist) { const k = key(new Date(h.date)); byDay.set(k, [...(byDay.get(k) || []), h.name]); }
+  const lead = (new Date(y, m, 1).getDay() + 6) % 7, len = new Date(y, m + 1, 0).getDate(), today = key(new Date());
+  const inMonth = hist.filter(h => { const d = new Date(h.date); return d.getFullYear() === y && d.getMonth() === m; }).length;
+  let cells = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'].map(d => `<div class="h">${d}</div>`).join('');
+  cells += '<div></div>'.repeat(lead);
+  for (let day = 1; day <= len; day++) {
+    const k = `${y}-${m}-${day}`, names = byDay.get(k);
+    const cls = `d${names ? ' w' : ''}${k === today ? ' t' : ''}${(lead + day - 1) % 7 > 4 ? ' o' : ''}`;
+    cells += `<div><span class="${cls}"${names ? ` title="${esc(names.join(', '))}"` : ''}>${day}</span></div>`;
+  }
+  $('#cal').innerHTML = `<div class="calhead"><button data-cal="-1" aria-label="Previous month">←</button>` +
+    `<span class="tag">${calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>` +
+    `<button data-cal="1" aria-label="Next month">→</button></div><div class="calgrid">${cells}</div>` +
+    `<p class="lab" style="margin:8px 0 0">${inMonth ? `${inMonth} workout${inMonth > 1 ? 's' : ''} this month · pink days are training days` : 'No workouts this month yet'}</p>`;
+}
+$('#cal').addEventListener('click', e => {
+  const b = e.target.closest('[data-cal]'); if (!b) return;
+  calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + Number(b.dataset.cal), 1);
+  renderCalendar(history());
+});
+
 function renderHistory() {
   const hist = history();
+  renderCalendar(hist);
   $('#histEmpty').hidden = hist.length > 0;
   const bests = new Map();
   for (const h of hist) { const b = bests.get(h.id); if (!b || h.rank > b.rank) bests.set(h.id, h); }

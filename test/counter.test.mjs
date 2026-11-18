@@ -167,6 +167,14 @@ test('AMRAP (Cindy): rounds, partial reps, undo across a round', () => {
   assert.equal(new Session(byId('cindy')).undo(), false);
 });
 
+test('AMRAP: the round view resets every round', () => {
+  const w = new Session(byId('cindy'));
+  for (let i = 0; i < 30 + 30 + 7; i++) w.add(i);
+  const c = w.chunk();
+  assert.equal(c.length, 3);
+  assert.deepEqual(c.map(x => x.done), [5, 2, 0]);
+});
+
 test('For time (Fran): walks the 21-15-9 ladder and finishes', () => {
   const w = new Session(byId('fran'));
   assert.equal(w.flat.length, 6);

@@ -320,7 +320,11 @@ export class Session {
       return this.list.map((st, i) => ({ ...st, done: this.resting || i < this.idx ? st.reps : i === this.idx ? this.reps : 0 }));
     }
     const len = this.def.seq.length;
-    const src = this.format === 'fortime' ? this.flat : this.def.seq;
+    if (this.format === 'amrap') {
+      const k = this.idx % len; // AMRAP's idx keeps counting across rounds
+      return this.def.seq.map((st, i) => ({ ...st, done: i < k ? st.reps : i === k ? this.reps : 0 }));
+    }
+    const src = this.flat;
     let base = Math.floor(this.idx / len) * len;
     if (this.format === 'fortime' && this.done) base = this.flat.length - len;
     return src.slice(base, base + len).map((st, i) => ({
