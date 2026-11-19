@@ -1,5 +1,6 @@
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from './vendor/vision_bundle.mjs';
 import { RepDetector, Session, Smoother, WORKOUTS, MOVES, FORMAT_NAMES, describe, stepName, clock } from './counter.js';
+import { AutoDetector, FreeSession, FREESTYLE } from './detect.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -22,7 +23,9 @@ let phase = 'idle';            // idle | countdown | running | paused | done
 let startAt = 0, pausedTotal = 0, pauseAt = 0, endedAt = 0, countdownTimer = 0, endArmed = 0;
 let announced = new Set(), wakeLock = null, audio = null, lastLive = null, lastLm = null;
 
-const allWorkouts = () => [...WORKOUTS, ...custom];
+const allWorkouts = () => [FREESTYLE, ...WORKOUTS, ...custom];
+const makeSession = d => (d.format === 'free' ? new FreeSession(d) : new Session(d));
+const isFree = () => session?.format === 'free';
 const durationMs = () => def.minutes * 60000;
 function elapsedMs() {
   if (phase === 'running') return performance.now() - startAt - pausedTotal;
@@ -147,36 +150,44 @@ function frame() {
   setStatus('Tracking', 'on');
   let live = { hint: '' };
   const active = phase === 'running' && !session.resting && !session.done;
-  if (active) {
+  if (active && isFree()) {
+    live = detector.update(lm, now, video.videoWidth / video.videoHeight);
+    for (const r of live.reps) onEvent(session.add(elapsedMs(), r.key, r.label || null), true);
+  } else if (active) {
     live = detector.update(lm, now, video.videoWidth / video.videoHeight);
     if (live.rep) addRep();
     if (MOVES[session.step.key]?.manual) live.hint = `${stepName(session.step)}: tap +1 or Done`;
-  }
+  } else if (isFree() && phase !== 'done') live = { hint: '', text: phase === 'running' ? '' : 'Press Start, then do any exercise' };
   const color = live.phase === 'B' ? '#ffffff' : (MOVES[session.step.key] || MOVES.other).color;
   drawer.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color, lineWidth: Math.max(3, canvas.width / 300) });
   drawer.drawLandmarks(lm, { color: '#ffffff', fillColor: color, radius: Math.max(3, canvas.width / 400), lineWidth: 1 });
   showLive(live);
 }
 function showLive(r) {
-  const key = `${r.hint}|${r.label}|${r.value?.toFixed?.(1)}|${r.phase}`;
+  const key = `${r.hint}|${r.label}|${r.value?.toFixed?.(1)}|${r.phase}|${r.text}`;
   if (key === lastLive) return; lastLive = key;
   $('#hint').textContent = r.hint || '';
   const m = $('#meter');
-  m.hidden = r.value == null;
-  if (r.value != null) {
+  m.hidden = r.value == null && !r.text;
+  if (r.text) m.textContent = r.text;
+  else if (r.value != null) {
     const v = r.unit === '°' ? `${Math.round(r.value)}°` : `${r.value.toFixed(1)}${r.unit}`;
     m.textContent = `${r.label} ${v} · ${r.phase === 'B' ? 'end of range' : r.phase === 'A' ? 'ready' : 'get set'}`;
   }
 }
 
 /* ---------- workout flow ---------- */
-function newDetector() { detector = new RepDetector(session.step.key, settings.level); }
+// Auto-detect keeps one detector for the whole session; other modes get one per movement.
+function newDetector(force = false) {
+  if (isFree()) { if (force || !(detector instanceof AutoDetector)) detector = new AutoDetector(settings.level); return; }
+  detector = new RepDetector(session.step.key, settings.level);
+}
 
 function selectWorkout(id) {
   if (!idle()) return;
   def = allWorkouts().find(w => w.id === id) || WORKOUTS[0];
   settings.workout = def.id; store.set('cindy.settings', settings);
-  phase = 'idle'; session = new Session(def); newDetector();
+  phase = 'idle'; session = makeSession(def); newDetector();
   renderPicker(); renderTitle(); renderTips(); render();
   if (def.id.startsWith('c-')) loadDraft(def, true);
 }
@@ -192,6 +203,10 @@ function onEvent(ev, countAloud) {
     finish(false); return;
   } else if (ev === 'minute') {
     beep(1320, 0.18); say('Rest', true);
+  } else if (isFree() && ev === 'move') {
+    beep(660, 0.12); say('Set done', true);
+  } else if (isFree()) {
+    beep(1320, 0.18); say(stepName(session.step), true);
   } else {
     newDetector(); beep(1320, 0.18);
     const name = stepName(session.step);
@@ -220,7 +235,7 @@ async function startWorkout() {
   if (!sourceOn) await startCamera();
   if (!sourceOn) return;
   beep(1, 0.01); // unlock audio inside the click
-  session = new Session(def); newDetector(); announced = new Set();
+  session = makeSession(def); newDetector(true); announced = new Set();
   phase = 'countdown'; render(); renderPicker();
   let n = 10;
   const ov = $('#overlay'); ov.hidden = false;
@@ -229,10 +244,10 @@ async function startWorkout() {
       ov.hidden = true; clearInterval(countdownTimer);
       phase = 'running'; startAt = performance.now(); pausedTotal = 0;
       if (video.src) { video.currentTime = 0; video.play().catch(() => {}); }
-      beep(1320, 0.4); say(`Go! ${stepName(session.step)}`, true);
+      beep(1320, 0.4); say(isFree() ? 'Go! Start any exercise' : `Go! ${stepName(session.step)}`, true);
       requestWake(); render(); return;
     }
-    ov.innerHTML = `${n}<small>${n > 3 ? `First up: ${esc(stepName(session.step))}` : 'Ready'}</small>`;
+    ov.innerHTML = `${n}<small>${n > 3 ? (isFree() ? 'Get in front of the camera' : `First up: ${esc(stepName(session.step))}`) : 'Ready'}</small>`;
     if (n === 10) say(`Ten seconds. ${def.name}`); else if (n <= 3) { say(String(n), true); beep(660, 0.12); }
     n--;
   };
@@ -247,12 +262,13 @@ function finish(early) {
   beep(440, 0.8);
   if (session.format === 'amrap') say(`Time! ${session.rounds} rounds and ${session.partial} reps.`, true);
   else if (session.format === 'fortime') say(session.done ? `Done! ${sayTime(session.doneAt)}.` : `Time cap. ${session.total} reps.`, true);
+  else if (isFree()) say(`Session over. ${session.total} reps in ${session.sets.length} sets.`, true);
   else say(`Done. ${session.minutesDone} of ${def.minutes} minutes completed.`, true);
   releaseWake(); saveResult(); render(); renderPicker(); showResult();
 }
 function resetWorkout() {
   clearInterval(countdownTimer); $('#overlay').hidden = true;
-  phase = 'idle'; session = new Session(def); newDetector(); releaseWake(); render(); renderPicker();
+  phase = 'idle'; session = makeSession(def); newDetector(); releaseWake(); render(); renderPicker();
 }
 
 function timerTick() {
@@ -268,6 +284,8 @@ function timerTick() {
     }
     const inMin = 60000 - (el % 60000), s = Math.ceil(inMin / 1000);
     if (s <= 3 && !announced.has(`m${m}s${s}`)) { announced.add(`m${m}s${s}`); beep(660, 0.12); }
+  } else if (isFree()) {
+    if (left <= 0) { finish(false); return; }
   } else {
     const calls = [[600000, '10 minutes left'], [300000, '5 minutes left'], [60000, 'One minute left'], [10000, '10 seconds']];
     for (const [ms, text] of calls) {
@@ -301,6 +319,7 @@ function saveResult(update = false) {
   const entry = {
     id: def.id, name: def.name, format: def.format, date: session.date,
     score: session.score, total: session.total, rank: session.rank, done: session.done, splits: session.roundTimes(),
+    ...(isFree() ? { detail: session.describeSets() } : {}),
   };
   const i = hist.findIndex(h => h.date === entry.date);
   if (i >= 0) hist[i] = entry; else if (!update) hist.unshift(entry);
@@ -310,10 +329,20 @@ function saveResult(update = false) {
 const bestOf = (hist, id) => hist.filter(h => h.id === id).reduce((b, h) => (!b || h.rank > b.rank ? h : b), null);
 
 function summary() {
+  if (isFree()) return `Rep Sheet auto-detect: ${session.summaryLine(endedAt)}. ${session.describeSets()}.`;
   return `${def.name} (${describe(def)}): ${session.score}` +
     (session.format === 'emom' ? ` minutes, ${session.total} reps` : session.format === 'fortime' && session.done ? '' : ` · ${session.total} total reps`);
 }
 function showResult() {
+  if (isFree()) {
+    const tot = session.totals(), max = Math.max(1, ...tot.map(x => x.reps));
+    $('#resTitle').textContent = 'Session complete';
+    $('#resScore').textContent = session.score;
+    $('#resSub').textContent = session.summaryLine(endedAt);
+    $('#resSplits').innerHTML = tot.map(x => `<div class="split w"><span>${esc(x.name)}</span><span class="bar"><i style="width:${(x.reps / max * 100).toFixed(1)}%"></i></span><span class="r">${x.reps}</span></div>`).join('');
+    $('#modal').hidden = false; $('#closeBtn').focus();
+    return;
+  }
   const t = session.roundTimes(), max = Math.max(...t, 1), f = session.format;
   $('#resTitle').textContent = f === 'fortime' ? (session.done ? `${def.name}: finished` : `${def.name}: time cap`) : `${def.name}: complete`;
   $('#resScore').textContent = session.score;
@@ -333,7 +362,8 @@ function renderPicker() {
   const dis = idle() ? '' : 'disabled';
   const btn = w => `<button class="pick" data-id="${esc(w.id)}" aria-pressed="${w.id === def.id}" ${dis}>` +
     `<svg aria-hidden="true"><use href="#i-${w.format}"/></svg>${esc(w.name)}<span class="fmt">${FORMAT_NAMES[w.format]}</span></button>`;
-  $('#picker').innerHTML = '<div class="grp">Benchmarks</div>' + WORKOUTS.map(btn).join('') +
+  $('#picker').innerHTML = '<div class="grp">Freestyle</div>' + btn(FREESTYLE) +
+    '<div class="grp">Benchmarks</div>' + WORKOUTS.map(btn).join('') +
     (custom.length ? '<div class="grp">Your workouts</div>' + custom.map(btn).join('') : '') +
     `<button class="pick add" data-new="1" ${dis}>+ Build your own</button>`;
 }
@@ -346,11 +376,21 @@ function renderTitle() {
     (wk ? ` · ${wk} workout${wk > 1 ? 's' : ''} this week` : '') + ". Today's workout:";
   $('#wName').textContent = def.name;
   $('#wDesc').textContent = describe(def);
-  $('#wFormat').textContent = def.format === 'fortime' ? `For time · ${def.minutes}-min cap` : `${FORMAT_NAMES[def.format]} · ${def.minutes} min`;
+  $('#copyWod').hidden = def.format === 'free';
+  $('#wFormat').textContent = def.format === 'free' ? 'Auto-detect · counts up' : def.format === 'fortime' ? `For time · ${def.minutes}-min cap` : `${FORMAT_NAMES[def.format]} · ${def.minutes} min`;
   const best = bestOf(history(), def.id);
   $('#wBest').textContent = best ? `Best ${best.score}${best.format === 'emom' ? ' min' : ''}` : '';
 }
 function renderTips() {
+  if (def.format === 'free') {
+    $('#tips').innerHTML = '<li><b>Placement:</b> 2–3 m away at hip height, about 45° to your side, with your whole body in view. Side-on works best for telling movements apart.</li>' +
+      `<li style="--c:#4a74d9"><b>Recognised by name:</b> ${Object.values(MOVES).filter(m => !m.manual).map(m => esc(m.name.toLowerCase())).join(', ')}.</li>` +
+      '<li style="--c:#e0a419"><b>Also named:</b> curls, shoulder press, hip hinges (swings, deadlifts) and glute bridges.</li>' +
+      '<li style="--c:#6b7480"><b>Anything else</b> you repeat steadily is counted as “Other movement” after three reps.</li>' +
+      '<li><b>Sets:</b> a new movement, or a 20-second pause, starts a new set. Tap End set to close one yourself.</li>' +
+      '<li>Wrong count? +1 and −1 fix the current set. Video never leaves your device.</li>';
+    return;
+  }
   const keys = [...new Set(def.seq.map(s => s.key))];
   $('#tips').innerHTML = '<li><b>Placement:</b> 2–3 m away at hip height, about 45° to your side, so your head, hands and feet stay in view for every movement.</li>' +
     keys.map(k => `<li style="--c:${MOVES[k].color}"><b>${esc(MOVES[k].name)}:</b> ${esc(MOVES[k].tip)}</li>`).join('') +
@@ -360,7 +400,10 @@ function renderTips() {
 function renderClock() {
   const el = elapsedMs(), f = session.format, c = $('#clock');
   let big, lab, low = false;
-  if (f === 'amrap') {
+  if (f === 'free') {
+    big = clock(el);
+    lab = phase === 'idle' ? 'Counts up · just start moving' : `Elapsed · ${session.sets.length} set${session.sets.length === 1 ? '' : 's'}`;
+  } else if (f === 'amrap') {
     big = clock(Math.ceil((durationMs() - el) / 1000) * 1000);
     lab = phase === 'idle' ? `${def.minutes}-minute AMRAP` : `Remaining · ${clock(el)} elapsed`;
     low = durationMs() - el <= 60000;
@@ -381,6 +424,16 @@ function renderClock() {
 }
 function renderNow() {
   const w = session, st = w.step, now = $('#now');
+  $('#nowTitle').textContent = w.format === 'free' ? 'Detected:' : 'Current set:';
+  if (w.format === 'free') {
+    const c = w.current;
+    now.style.setProperty('--c', c ? (MOVES[c.key] || MOVES.other).color : '#9a958a');
+    $('#moveName').textContent = c ? c.name : phase === 'done' ? 'Session over' : 'Waiting for a movement';
+    $('#moveReps').innerHTML = `${c ? c.reps : 0}<small> reps</small>`;
+    $('#moveSub').textContent = c ? `Set ${w.sets.length} · started at ${clock(c.start)}` + (phase === 'paused' ? ' · paused' : '')
+      : phase === 'running' ? 'Start any exercise in view of the camera' : phase === 'done' ? `${w.total} reps in ${w.sets.length} sets` : 'Press Start, then do any exercise';
+    return;
+  }
   if (w.format === 'emom' && phase === 'done') {
     now.style.setProperty('--c', '#9a958a');
     $('#moveName').textContent = 'Finished';
@@ -409,18 +462,24 @@ function renderNow() {
 function render() {
   renderClock(); renderNow();
   const w = session, f = w.format;
-  if (f === 'amrap') { $('#score').textContent = w.score; $('#scoreLab').textContent = `rounds + reps · ${w.total} total`; }
+  if (f === 'free') { $('#score').textContent = w.total; $('#scoreLab').textContent = `reps · ${w.sets.length} set${w.sets.length === 1 ? '' : 's'}`; }
+  else if (f === 'amrap') { $('#score').textContent = w.score; $('#scoreLab').textContent = `rounds + reps · ${w.total} total`; }
   else if (f === 'fortime') {
     const all = w.flat.reduce((n, s) => n + s.reps, 0);
     $('#score').textContent = w.done ? w.score : `${w.total}`;
     $('#scoreLab').textContent = w.done ? `finished · ${w.total} reps` : `of ${all} reps`;
   } else { $('#score').textContent = w.score; $('#scoreLab').textContent = `minutes done · ${w.total} reps`; }
-  $('#ladder').innerHTML = w.chunk().map((st, i, arr) => {
+  if (f === 'free') {
+    const rows = w.chunk(), max = Math.max(1, ...rows.map(r => r.reps));
+    $('#ladder').innerHTML = rows.length ? rows.map((r, i) => `<div class="rung${i === 0 && w.current ? ' cur' : ''}" style="--c:${(MOVES[r.key] || MOVES.other).color}"><span>${esc(r.label)}</span>` +
+      `<span class="bar"><i style="width:${(r.reps / max * 100).toFixed(1)}%"></i></span><span class="n">${r.reps}</span></div>`).join('')
+      : '<p class="sub" style="margin:0;opacity:.7">Your sets appear here as you train.</p>';
+  } else $('#ladder').innerHTML = w.chunk().map((st, i, arr) => {
     const cur = !w.done && !w.resting && st.done < st.reps && arr.slice(0, i).every(x => x.done === x.reps);
     return `<div class="rung${cur ? ' cur' : ''}" style="--c:${(MOVES[st.key] || MOVES.other).color}"><span>${esc(stepName(st))}</span>` +
       `<span class="bar"><i style="width:${(st.done / st.reps * 100).toFixed(1)}%"></i></span><span class="n">${st.done}/${st.reps}</span></div>`;
   }).join('');
-  $('#ladderTitle').textContent = f === 'emom' ? 'This minute:' : f === 'fortime' && !(w.totalRounds > 1) ? 'The workout:' : 'This round:';
+  $('#ladderTitle').textContent = f === 'free' ? 'Recent sets:' : f === 'emom' ? 'This minute:' : f === 'fortime' && !(w.totalRounds > 1) ? 'The workout:' : 'This round:';
   renderPace();
   const go = $('#goBtn');
   go.textContent = { idle: 'Start workout', countdown: 'Starting…', running: 'Pause', paused: 'Resume', done: 'Start again' }[phase];
@@ -429,7 +488,8 @@ function render() {
   $('#endBtn').textContent = endArmed ? 'Tap again' : 'End';
   const canCount = phase === 'running' && !w.resting && !w.done;
   $('#plusBtn').disabled = !canCount;
-  $('#doneBtn').disabled = !canCount;
+  $('#doneBtn').disabled = !canCount || (f === 'free' && !w.current);
+  $('#doneBtn').textContent = f === 'free' ? 'End set' : 'Done';
   $('#minusBtn').disabled = phase === 'idle' || phase === 'countdown' || w.total === 0;
 }
 /* ---------- pace chart ---------- */
@@ -438,7 +498,7 @@ function renderPace() {
   if (!W || !H) return;
   const span = phase === 'idle' || phase === 'countdown' ? 0 : elapsedMs();
   const reps = session.events.filter(e => e.type === 'rep').map(e => e.t);
-  const total = Math.max(durationMs(), span, 1);
+  const total = isFree() ? Math.max(5 * 60000, span * 1.25) : Math.max(durationMs(), span, 1);
   const bucket = total <= 20 * 60000 ? 30000 : 60000;
   const pts = [];
   for (let a = 0; a < span; a += bucket) {
@@ -521,7 +581,7 @@ function renderHistory() {
   $('#hist').innerHTML = hist.map(h => {
     const d = new Date(h.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     const pr = counts.get(h.id) > 1 && bests.get(h.id) === h ? '<span class="pr">PR</span>' : '';
-    return `<tr><td>${d}</td><td>${esc(h.name)}</td><td class="r">${esc(h.score)}${h.format === 'emom' ? ' min' : ''}${pr}</td><td class="r">${h.total}</td></tr>`;
+    return `<tr><td>${d}</td><td>${esc(h.name)}${h.detail ? `<div class="lab">${esc(h.detail)}</div>` : ''}</td><td class="r">${esc(h.score)}${h.format === 'emom' ? ' min' : ''}${pr}</td><td class="r">${h.total}</td></tr>`;
   }).join('');
 }
 
@@ -610,7 +670,7 @@ function bindSettings() {
     el.addEventListener('change', () => {
       settings[k] = el.type === 'checkbox' ? el.checked : el.value;
       store.set('cindy.settings', settings);
-      if (id === 'sLevel') newDetector();
+      if (id === 'sLevel') newDetector(true);
       if (id === 'sMirror' && !video.src) $('#stage').classList.toggle('mirror', settings.mirror);
       if (id === 'sCam' && stream) startCamera();
       if (id === 'sModel' && sourceOn) loadModel();

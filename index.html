@@ -187,6 +187,7 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .split{display:grid;grid-template-columns:5.5em 1fr 4em;gap:8px;align-items:center;font-size:14px}
 .split .bar{height:10px;background:var(--card);border-radius:5px;overflow:hidden}.split .bar i{display:block;height:100%;background:#d0469a;border-radius:5px}
 .split .r{text-align:right;font-variant-numeric:tabular-nums}
+.split.w{grid-template-columns:9em 1fr 3em}
 
 @media(max-width:600px){
   table{font-size:13px}
@@ -207,6 +208,7 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   <symbol id="i-amrap" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 9"/><path d="M20 4v5h-5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15"/><path d="M4 20v-5h5"/></symbol>
   <symbol id="i-fortime" viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M10 2.5h4M18.5 6.5l1.5-1.5"/></symbol>
   <symbol id="i-emom" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4M9 14.5h6"/></symbol>
+  <symbol id="i-free" viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></symbol>
   <symbol id="i-camera" viewBox="0 0 24 24"><rect x="3" y="6.5" width="13" height="11" rx="3"/><path d="m16 10.5 5-3v9l-5-3"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="17.5" r="1"/></symbol>
@@ -286,7 +288,7 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
         </div>
         <div class="card pastel c-o now" id="now">
           <svg class="deco" aria-hidden="true"><use href="#s-tri"/></svg>
-          <h3>Current set:</h3>
+          <h3 id="nowTitle">Current set:</h3>
           <div class="name" id="moveName">Pull-ups</div>
           <div class="reps num" id="moveReps">0<small>/5</small></div>
           <div class="sub" id="moveSub">Round 1</div>

@@ -263,7 +263,7 @@ export const WORKOUTS = [
     desc: 'EMOM 12, alternating · 20 lunges · 20 air squats · 40 jumping jacks' },
 ];
 
-export const FORMAT_NAMES = { amrap: 'AMRAP', fortime: 'For time', emom: 'EMOM' };
+export const FORMAT_NAMES = { amrap: 'AMRAP', fortime: 'For time', emom: 'EMOM', free: 'Auto' };
 export const stepName = st => st.label || (MOVES[st.key] || MOVES.other).name;
 
 export function describe(def) {

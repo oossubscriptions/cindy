@@ -2,6 +2,7 @@
 
 A browser app that counts your reps through the camera for CrossFit-style workouts. It started with the benchmark **"Cindy"** and now handles any workout.
 
+- **Auto-detect:** pick it in the sidebar, press Start and do any exercise. Rep Sheet works out what you're doing, counts the reps and groups them into sets. It recognises the 8 camera movements below by name. It also names curls, shoulder press, hip hinges (swings, deadlifts) and glute bridges, and counts anything else you repeat steadily as "Other movement".
 - **Benchmarks built in:** Cindy, Fran, Angie, Chelsea, Annie, Murph, 100 Burpees and an alternating leg EMOM.
 - **Build your own:** AMRAP, For time (with rounds) or EMOM (every movement each minute, or alternating), with any mix of movements.
 - **Movements counted by camera:** pull-ups, push-ups, air squats, sit-ups, thrusters, burpees, lunges and jumping jacks, each with a full range-of-motion check.
@@ -40,10 +41,16 @@ Place the camera 2–3 m away at hip height, about 45° to your side, so your he
 
 If counting is too picky or too loose, change **Counting strictness** in Settings.
 
+## How auto-detect works
+
+`detect.js` runs every movement detector from `counter.js` on each frame. A resolver settles overlaps: a burpee contains a push-up-like plank and a squat-like stand, so it wins over both. A thruster wins over a squat. Lunges are told apart from squats by a split stance. Push-ups need straight legs, and pull-ups need the body (not the hands) to move. For anything else, a periodic-motion counter finds the body signal with the biggest steady swing (wrists, elbows, hips) and counts its cycles once it has seen three in a row. A new movement, or a 20-second pause, starts a new set.
+
+Telling movements apart works best side-on to the camera. Facing the camera, lunges can look like squats.
+
 ## Tests
 
 ```bash
 npm test
 ```
 
-The tests cover rep detection for every camera movement on synthetic poses, and scoring for all three formats (`counter.js`).
+The tests cover rep detection for every camera movement on synthetic poses, scoring for all three formats (`counter.js`), and auto-detect: recognising each movement, resolving overlaps, counting unknown movements and grouping sets (`detect.js`).
