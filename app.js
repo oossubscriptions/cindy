@@ -1,5 +1,5 @@
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from './vendor/vision_bundle.mjs';
-import { RepDetector, Session, Smoother, WORKOUTS, MOVES, FORMAT_NAMES, describe, stepName, clock } from './counter.js';
+import { RepDetector, Session, Smoother, WORKOUTS, GROUPS, MOVES, CAMERA_MOVES, RHYTHM_MOVES, TAP_MOVES, FORMAT_NAMES, describe, stepName, clock } from './counter.js';
 import { AutoDetector, FreeSession, FREESTYLE } from './detect.js';
 
 const $ = s => document.querySelector(s);
@@ -155,7 +155,8 @@ function frame() {
     for (const r of live.reps) onEvent(session.add(elapsedMs(), r.key, r.label || null), true);
   } else if (active) {
     live = detector.update(lm, now, video.videoWidth / video.videoHeight);
-    if (live.rep) addRep();
+    // Rhythm-counted movements can report several reps at once (the first three, once the rhythm is confirmed).
+    if (live.rep) { const n = Math.min(live.count || 1, session.remainingInStep ?? 1); for (let i = 0; i < n; i++) addRep(); }
     if (MOVES[session.step.key]?.manual) live.hint = `${stepName(session.step)}: tap +1 or Done`;
   } else if (isFree() && phase !== 'done') live = { hint: '', text: phase === 'running' ? '' : 'Press Start, then do any exercise' };
   const color = live.phase === 'B' ? '#ffffff' : (MOVES[session.step.key] || MOVES.other).color;
@@ -363,7 +364,7 @@ function renderPicker() {
   const btn = w => `<button class="pick" data-id="${esc(w.id)}" aria-pressed="${w.id === def.id}" ${dis}>` +
     `<svg aria-hidden="true"><use href="#i-${w.format}"/></svg>${esc(w.name)}<span class="fmt">${FORMAT_NAMES[w.format]}</span></button>`;
   $('#picker').innerHTML = '<div class="grp">Freestyle</div>' + btn(FREESTYLE) +
-    '<div class="grp">Benchmarks</div>' + WORKOUTS.map(btn).join('') +
+    GROUPS.map(g => `<div class="grp">${g}</div>` + WORKOUTS.filter(w => (w.group || 'Benchmarks') === g).map(btn).join('')).join('') +
     (custom.length ? '<div class="grp">Your workouts</div>' + custom.map(btn).join('') : '') +
     `<button class="pick add" data-new="1" ${dis}>+ Build your own</button>`;
 }
@@ -384,8 +385,8 @@ function renderTitle() {
 function renderTips() {
   if (def.format === 'free') {
     $('#tips').innerHTML = '<li><b>Placement:</b> 2–3 m away at hip height, about 45° to your side, with your whole body in view. Side-on works best for telling movements apart.</li>' +
-      `<li style="--c:#4a74d9"><b>Recognised by name:</b> ${Object.values(MOVES).filter(m => !m.manual).map(m => esc(m.name.toLowerCase())).join(', ')}.</li>` +
-      '<li style="--c:#e0a419"><b>Also named:</b> curls, shoulder press, hip hinges (swings, deadlifts) and glute bridges.</li>' +
+      `<li style="--c:#4a74d9"><b>Full rep check:</b> ${CAMERA_MOVES.map(k => esc(MOVES[k].name.toLowerCase())).join(', ')}.</li>` +
+      `<li style="--c:#e0a419"><b>Named from their rhythm</b> (after 3 reps): ${RHYTHM_MOVES.map(k => esc(MOVES[k].name.toLowerCase())).join(', ')}. Band and dumbbell versions look the same to the camera.</li>` +
       '<li style="--c:#6b7480"><b>Anything else</b> you repeat steadily is counted as “Other movement” after three reps.</li>' +
       '<li><b>Sets:</b> a new movement, or a 20-second pause, starts a new set. Tap End set to close one yourself.</li>' +
       '<li>Wrong count? +1 and −1 fix the current set. Video never leaves your device.</li>';
@@ -394,6 +395,7 @@ function renderTips() {
   const keys = [...new Set(def.seq.map(s => s.key))];
   $('#tips').innerHTML = '<li><b>Placement:</b> 2–3 m away at hip height, about 45° to your side, so your head, hands and feet stay in view for every movement.</li>' +
     keys.map(k => `<li style="--c:${MOVES[k].color}"><b>${esc(MOVES[k].name)}:</b> ${esc(MOVES[k].tip)}</li>`).join('') +
+    (keys.some(k => MOVES[k].rhythm) ? '<li>Rhythm-counted movements start counting after 3 steady reps, then add those 3 at once.</li>' : '') +
     '<li>The app moves on to the next movement by itself once you finish its reps.</li>' +
     '<li>Video never leaves your device. Pose detection runs in this browser tab.</li>';
 }
@@ -587,8 +589,9 @@ function renderHistory() {
 
 /* ---------- workout builder ---------- */
 let draft = null;
-const moveOptions = sel => Object.entries(MOVES).map(([k, m]) =>
-  `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(m.name)}${m.manual ? ' (tap to count)' : ''}</option>`).join('');
+const moveOptions = sel => [['Counted by camera, full range checked', CAMERA_MOVES], ['Counted by camera, by rhythm', RHYTHM_MOVES], ['Tap to count', TAP_MOVES]]
+  .map(([label, keys]) => `<optgroup label="${label}">` + keys.map(k =>
+    `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(MOVES[k].name)}</option>`).join('') + '</optgroup>').join('');
 function loadDraft(src, editing = false) {
   draft = {
     id: editing ? src.id : null, name: editing ? src.name : src ? `${src.name} (my version)` : '',

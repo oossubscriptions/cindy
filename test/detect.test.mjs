@@ -126,7 +126,7 @@ test('standing still counts nothing', () => {
 test('unknown repeated movement (curls) is counted and named', () => {
   const { reps } = play(new AutoDetector(), [curl(false), ...times(10, [curl(true), curl(false)])]);
   assert.ok(reps.length >= 9 && reps.length <= 10, `counted ${reps.length}`);
-  assert.ok(reps.every(r => r === 'Curls'), reps.join());
+  assert.ok(reps.every(r => r === 'curl'), reps.join());
 });
 
 function press(top) { // standing, facing the camera, dumbbells from shoulders to overhead
@@ -140,7 +140,7 @@ test('shoulder press is named, and never mistaken for pull-ups', () => {
   const { reps } = play(new AutoDetector(), [press(false), ...times(8, [press(true), press(false)])]);
   assert.equal(count(reps, 'pullup'), 0, reps.join());
   assert.ok(reps.length >= 7 && reps.length <= 8, `counted ${reps.length}`);
-  assert.ok(reps.every(r => r === 'Shoulder press'), reps.join());
+  assert.ok(reps.every(r => r === 'press'), reps.join());
 });
 
 test('periodic counter ignores jitter and erratic motion', () => {
@@ -162,7 +162,7 @@ test('FreeSession groups reps into sets', () => {
   assert.equal(s.add(5000, 'pushup'), 'set');
   s.add(6000, 'pushup');
   assert.equal(s.add(40000, 'pushup'), 'set'); // long pause: new set
-  s.add(41000, 'other', 'Curls');
+  s.add(41000, 'curl');
   assert.equal(s.total, 7); assert.equal(s.sets.length, 4); assert.equal(s.score, '7 reps');
   assert.deepEqual(s.totals().map(x => `${x.name}:${x.reps}`), ['Air squats:3', 'Push-ups:3', 'Curls:1']);
   assert.equal(s.chunk()[0].label, 'Curls');
@@ -178,4 +178,91 @@ test('FreeSession +1 adds to the current set', () => {
   const s = new FreeSession();
   s.add(1000, 'squat'); assert.equal(s.add(1500), 'rep');
   assert.equal(s.current.reps, 2); assert.equal(s.step.key, 'squat');
+});
+
+/* ---------- warm-ups, floor work and band exercises ---------- */
+
+const F = { nose: [0.5, 0.2], mouth: [0.5, 0.22], sh: { l: [0.44, 0.3], r: [0.56, 0.3] }, hip: { l: [0.46, 0.55], r: [0.54, 0.55] },
+  kn: { l: [0.46, 0.72], r: [0.54, 0.72] }, an: { l: [0.46, 0.9], r: [0.54, 0.9] },
+  el: { l: [0.43, 0.43], r: [0.57, 0.43] }, wr: { l: [0.43, 0.56], r: [0.57, 0.56] } }; // standing, facing the camera
+const front = o => pose({ ...F, ...o });
+const S = { nose: [0.52, 0.2], mouth: [0.52, 0.22], sh: [0.5, 0.3], hip: [0.5, 0.55], kn: [0.5, 0.72], an: [0.5, 0.9],
+  el: [0.5, 0.43], wr: [0.51, 0.56] }; // standing, side-on, facing right
+const side = o => pose({ ...S, ...o });
+const shiftY = (o, d) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Array.isArray(v) ? [v[0], v[1] + d] : { l: [v.l[0], v.l[1] + d], r: [v.r[0], v.r[1] + d] }]));
+const arm = (o, len, deg) => at(o, len, deg);
+
+const MOVEMENTS = {
+  highknees: { hold: 2, seq: [side({}), side({ kn: { l: [0.62, 0.56], r: [0.5, 0.72] }, an: { l: [0.62, 0.76], r: [0.5, 0.9] } }),
+    side({}), side({ kn: { l: [0.5, 0.72], r: [0.62, 0.56] }, an: { l: [0.5, 0.9], r: [0.62, 0.76] } })] },
+  march: { hold: 6, seq: [side({}), side({ kn: { l: [0.6, 0.6], r: [0.5, 0.72] }, an: { l: [0.6, 0.78], r: [0.5, 0.9] } }),
+    side({}), side({ kn: { l: [0.5, 0.72], r: [0.6, 0.6] }, an: { l: [0.5, 0.9], r: [0.6, 0.78] } })] },
+  buttkicks: { hold: 3, seq: [side({}), side({ kn: { l: [0.48, 0.73], r: [0.5, 0.72] }, an: { l: [0.4, 0.6], r: [0.5, 0.9] } }),
+    side({}), side({ kn: { l: [0.5, 0.72], r: [0.48, 0.73] }, an: { l: [0.5, 0.9], r: [0.4, 0.6] } })] },
+  latraise: { seq: [front({}), front({ el: { l: [0.36, 0.32], r: [0.64, 0.32] }, wr: { l: [0.27, 0.31], r: [0.73, 0.31] } })] },
+  frontraise: { seq: [side({}), side({ el: [0.62, 0.31], wr: [0.74, 0.31] })] },
+  pullapart: { seq: [front({ el: { l: [0.47, 0.3], r: [0.53, 0.3] }, wr: { l: [0.49, 0.3], r: [0.51, 0.3] } }),
+    front({ el: { l: [0.36, 0.3], r: [0.64, 0.3] }, wr: { l: [0.28, 0.3], r: [0.72, 0.3] } })] },
+  armcircles: { hold: 2, perCycle: 1, seq: [30, 100, 170, 100].map(d => front({
+    el: { l: arm([0.44, 0.3], 0.12, 90 + d), r: arm([0.56, 0.3], 0.12, 90 - d) }, wr: { l: arm([0.44, 0.3], 0.25, 90 + d), r: arm([0.56, 0.3], 0.25, 90 - d) } })) },
+  sidebends: { seq: [front({ sh: { l: [0.36, 0.31], r: [0.48, 0.31] }, el: { l: [0.38, 0.45], r: [0.5, 0.45] }, nose: [0.42, 0.21] }),
+    front({ sh: { l: [0.52, 0.31], r: [0.64, 0.31] }, el: { l: [0.5, 0.45], r: [0.62, 0.45] }, nose: [0.58, 0.21] })] },
+  twists: { seq: [front({ sh: { l: [0.44, 0.3], r: [0.56, 0.3] }, wr: [0.5, 0.42], el: { l: [0.45, 0.42], r: [0.55, 0.42] } }),
+    front({ sh: { l: [0.475, 0.3], r: [0.525, 0.3] }, wr: [0.5, 0.42], el: { l: [0.48, 0.42], r: [0.52, 0.42] } })] },
+  calfraises: { seq: [front({}), (() => { const o = shiftY({ ...F }, -0.03); o.an = shiftY({ an: F.an }, -0.012).an; return pose(o); })()] },
+  toetouches: { seq: [side({}), side({ sh: [0.585, 0.785], nose: [0.6, 0.86], mouth: [0.6, 0.85], el: [0.57, 0.84], wr: [0.56, 0.9] })] },
+  hinge: { seq: [side({ wr: [0.55, 0.4], el: [0.53, 0.38] }), side({ sh: [0.74, 0.53], nose: [0.84, 0.55], mouth: [0.84, 0.56], el: [0.74, 0.6], wr: [0.76, 0.62] })] },
+  climbers: { hold: 3, seq: (() => {
+    const base = { wr: [0.3, 0.8], el: [0.3, 0.68], sh: [0.3, 0.56], hip: [0.6, 0.59], nose: [0.22, 0.56], mouth: [0.22, 0.57] };
+    const legs = (l, r) => pose({ ...base, kn: { l: l[0], r: r[0] }, an: { l: l[1], r: r[1] } });
+    const out = [[0.75, 0.62], [0.9, 0.64]], inn = [[0.45, 0.72], [0.58, 0.78]];
+    return [legs(out, out), legs(inn, out), legs(out, out), legs(out, inn)];
+  })() },
+  bridges: { seq: [pose({ sh: [0.3, 0.85], hip: [0.5, 0.85], kn: [0.65, 0.72], an: [0.72, 0.88], el: [0.4, 0.86], wr: [0.48, 0.86], nose: [0.24, 0.83], mouth: [0.25, 0.84] }),
+    pose({ sh: [0.3, 0.85], hip: [0.5, 0.74], kn: [0.65, 0.68], an: [0.72, 0.88], el: [0.4, 0.86], wr: [0.48, 0.86], nose: [0.24, 0.83], mouth: [0.25, 0.84] })] },
+  legraises: { seq: [pose({ sh: [0.3, 0.85], hip: [0.55, 0.85], kn: [0.75, 0.85], an: [0.95, 0.85], el: [0.42, 0.86], wr: [0.52, 0.86], nose: [0.24, 0.83], mouth: [0.25, 0.84] }),
+    pose({ sh: [0.3, 0.85], hip: [0.55, 0.85], kn: [0.55, 0.65], an: [0.55, 0.45], el: [0.42, 0.86], wr: [0.52, 0.86], nose: [0.24, 0.83], mouth: [0.25, 0.84] })] },
+  clamshells: { seq: [pose({ sh: [0.3, 0.7], hip: [0.55, 0.72], kn: [0.65, 0.8], an: [0.5, 0.85], el: [0.27, 0.62], wr: [0.25, 0.66], nose: [0.22, 0.68], mouth: [0.23, 0.69] }),
+    pose({ sh: [0.3, 0.7], hip: [0.55, 0.72], kn: { l: [0.65, 0.8], r: [0.66, 0.66] }, an: [0.5, 0.85], el: [0.27, 0.62], wr: [0.25, 0.66], nose: [0.22, 0.68], mouth: [0.23, 0.69] })] },
+  kickbacks: { seq: (() => {
+    const base = { sh: [0.35, 0.6], hip: [0.6, 0.6], el: [0.35, 0.7], wr: [0.35, 0.8], nose: [0.28, 0.6], mouth: [0.28, 0.61] };
+    return [pose({ ...base, kn: [0.6, 0.8], an: [0.75, 0.8] }), pose({ ...base, kn: { l: [0.6, 0.8], r: [0.76, 0.63] }, an: { l: [0.75, 0.8], r: [0.9, 0.52] } })];
+  })() },
+  curl: { seq: [side({ el: [0.5, 0.45], wr: [0.51, 0.6] }), side({ el: [0.5, 0.45], wr: [0.53, 0.32] })] },
+  pushdown: { seq: [side({ el: [0.5, 0.45], wr: [0.62, 0.45] }), side({ el: [0.5, 0.45], wr: [0.52, 0.6] })] },
+  triceps: { seq: [front({ el: { l: [0.44, 0.12], r: [0.56, 0.12] }, wr: { l: [0.46, 0.24], r: [0.54, 0.24] } }),
+    front({ el: { l: [0.44, 0.12], r: [0.56, 0.12] }, wr: { l: [0.44, -0.03], r: [0.56, -0.03] } })] },
+  row: { seq: [side({ el: [0.62, 0.36], wr: [0.74, 0.42] }), side({ el: [0.4, 0.4], wr: [0.52, 0.42] })] },
+  facepull: { seq: [side({ el: [0.63, 0.3], wr: [0.75, 0.3] }), side({ el: [0.45, 0.28], wr: [0.56, 0.24] })] },
+  uprightrow: { seq: [front({ el: { l: [0.42, 0.45], r: [0.58, 0.45] }, wr: { l: [0.47, 0.55], r: [0.53, 0.55] } }),
+    front({ el: { l: [0.36, 0.28], r: [0.64, 0.28] }, wr: { l: [0.47, 0.32], r: [0.53, 0.32] } })] },
+  latsteps: { seq: [front({}), front({ kn: { l: [0.4, 0.72], r: [0.6, 0.72] }, an: { l: [0.36, 0.9], r: [0.64, 0.9] } })] },
+};
+
+for (const [key, m] of Object.entries(MOVEMENTS)) {
+  test(`auto-detect names ${key}`, () => {
+    const reps = 10, cycle = m.seq.length > 2 ? m.seq : [m.seq[0], m.seq[1]];
+    const steps = reps / (m.perCycle ?? (m.seq.length > 2 ? 2 : 1)); // 4-pose leg sequences hold two reps, one per side
+    const { reps: got } = play(new AutoDetector(), [m.seq[0], ...times(steps, m.seq.length > 2 ? [...cycle.slice(1), cycle[0]] : [cycle[1], cycle[0]])], { hold: m.hold || 4 });
+    const named = count(got, key);
+    assert.ok(named >= reps - 2 && got.length <= reps + 1, `${key}: got [${got.join(', ')}]`);
+  });
+}
+
+test('structured workouts count rhythm movements without naming them', async () => {
+  const { RepDetector } = await import('../counter.js');
+  const d = new RepDetector('curl');
+  let n = 0, t = 0;
+  for (const f of [MOVEMENTS.curl.seq[0], ...times(10, [MOVEMENTS.curl.seq[1], MOVEMENTS.curl.seq[0]])]) {
+    for (let k = 0; k < 4; k++) { t += 100; const r = d.update(f, t); if (r.rep) n += r.count; }
+  }
+  assert.ok(n >= 9 && n <= 10, `counted ${n}`);
+});
+
+test('high knees and butt kicks are not counted as squats or lunges', () => {
+  for (const k of ['highknees', 'buttkicks', 'march']) {
+    const m = MOVEMENTS[k];
+    const { reps } = play(new AutoDetector(), [m.seq[0], ...times(5, [...m.seq.slice(1), m.seq[0]])], { hold: m.hold });
+    assert.equal(reps.filter(r => r === 'squat' || r === 'lunge').length, 0, `${k}: ${reps.join()}`);
+  }
 });

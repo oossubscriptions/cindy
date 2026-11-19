@@ -3,6 +3,7 @@
 A browser app that counts your reps through the camera for CrossFit-style workouts. It started with the benchmark **"Cindy"** and now handles any workout.
 
 - **Auto-detect:** pick it in the sidebar, press Start and do any exercise. Rep Sheet works out what you're doing, counts the reps and groups them into sets. It recognises the 8 camera movements below by name. It also names curls, shoulder press, hip hinges (swings, deadlifts) and glute bridges, and counts anything else you repeat steadily as "Other movement".
+- **Library:** benchmarks plus warm-ups (Full warm-up, Upper warm-up, Run prep, Hip mobility), resistance band (Thera-Band) workouts (Band upper body, Band lower body, Band shoulders, Band arms, Band push & pull) and core sessions (Core burner, Core ladder).
 - **Benchmarks built in:** Cindy, Fran, Angie, Chelsea, Annie, Murph, 100 Burpees and an alternating leg EMOM.
 - **Build your own:** AMRAP, For time (with rounds) or EMOM (every movement each minute, or alternating), with any mix of movements.
 - **Movements counted by camera:** pull-ups, push-ups, air squats, sit-ups, thrusters, burpees, lunges and jumping jacks, each with a full range-of-motion check.
@@ -41,9 +42,17 @@ Place the camera 2–3 m away at hip height, about 45° to your side, so your he
 
 If counting is too picky or too loose, change **Counting strictness** in Settings.
 
+## Exercises the camera can count
+
+- **Full rep check** (a strict two-position rep): pull-ups, push-ups, air squats, lunges, sit-ups, thrusters, burpees, jumping jacks.
+- **By rhythm** (counted after 3 steady reps, then all 3 added): high knees, marching, butt kicks, arm circles, side bends, torso twists, calf raises, toe touches, hip hinges (swings, deadlifts, good mornings), mountain climbers, lateral steps (band walks, skaters), glute bridges, leg raises, clamshells, kickbacks, curls, triceps pushdowns, triceps extensions, shoulder press, lateral raises, front raises, pull-aparts, rows / chest press, face pulls, upright rows.
+- **Tap to count:** double-unders, runs, anything else.
+
+A camera can't see a resistance band, so band and dumbbell versions of an exercise look the same and are counted the same way. Rows and chest presses look alike from the side, so they share one entry.
+
 ## How auto-detect works
 
-`detect.js` runs every movement detector from `counter.js` on each frame. A resolver settles overlaps: a burpee contains a push-up-like plank and a squat-like stand, so it wins over both. A thruster wins over a squat. Lunges are told apart from squats by a split stance. Push-ups need straight legs, and pull-ups need the body (not the hands) to move. For anything else, a periodic-motion counter finds the body signal with the biggest steady swing (wrists, elbows, hips) and counts its cycles once it has seen three in a row. A new movement, or a 20-second pause, starts a new set.
+`detect.js` runs every movement detector from `counter.js` on each frame. A resolver settles overlaps: a burpee contains a push-up-like plank and a squat-like stand, so it wins over both. A thruster wins over a squat. Lunges are told apart from squats by a split stance. Push-ups need straight legs, and pull-ups need the body (not the hands) to move. For everything else, a rhythm counter (`rhythm.js`) finds the body signal with the biggest steady swing (wrists, elbows, hips) and counts its cycles once it has seen three in a row. A new movement, or a 20-second pause, starts a new set.
 
 Telling movements apart works best side-on to the camera. Facing the camera, lunges can look like squats.
 

@@ -1,14 +1,9 @@
 // Pure logic: rep detection from pose landmarks + workout bookkeeping (AMRAP, For Time, EMOM).
 // No DOM access here so it can be unit-tested in Node (see test/counter.test.mjs).
 
-// MediaPipe Pose landmark indices, as [left, right] pairs.
-export const P = {
-  NOSE: 0, MOUTH: [9, 10],
-  SH: [11, 12], EL: [13, 14], WR: [15, 16],
-  HIP: [23, 24], KN: [25, 26], AN: [27, 28],
-};
-
-export const MIN_VIS = 0.5;
+import { P, MIN_VIS, angle, dist, vis, tilt } from './geom.js';
+import { PeriodicCounter } from './rhythm.js';
+export { P, MIN_VIS, angle } from './geom.js';
 
 // Thresholds in degrees (angles) or as a fraction of a body segment (tolerances).
 export const LEVELS = {
@@ -19,17 +14,6 @@ export const LEVELS = {
   lenient:  { squatDown: 120, squatUp: 150, pushDown: 115, pushUp: 140, pullHang: 125, chinTol: 0.3,  hipKneeTol: 0.3,
               situpUp: 85, situpDown: 110, lungeDown: 125, jackLegs: 1.4, jackLegsOn: false, burpeeHands: false },
 };
-
-export function angle(a, b, c) {
-  const ab = Math.atan2(a.y - b.y, a.x - b.x);
-  const cb = Math.atan2(c.y - b.y, c.x - b.x);
-  let d = Math.abs((ab - cb) * 180 / Math.PI);
-  return d > 180 ? 360 - d : d;
-}
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-const vis = p => (p ? (p.visibility ?? 1) : 0);
-// Angle of the a→b line from horizontal, 0..90 degrees.
-const tilt = (a, b) => Math.atan2(Math.abs(a.y - b.y), Math.abs(a.x - b.x)) * 180 / Math.PI;
 
 // Pick the body side (0 = left, 1 = right) whose joints are most visible.
 function bestSide(lm, groups) {
@@ -49,6 +33,10 @@ function squatState(j, T) {
   const low = knee < T.squatDown || j.hip.y >= j.kn.y - T.hipKneeTol * shin;
   const tall = knee > T.squatUp && j.hip.y < j.kn.y - 0.6 * shin;
   return { knee, low, tall };
+}
+
+function rhythmMoves(list) {
+  return Object.fromEntries(Object.entries(list).map(([k, [name, color, tip]]) => [k, { name, color, tip, rhythm: true }]));
 }
 
 // Each movement has two positions: A (start / lockout) and B (the other end of the range).
@@ -175,11 +163,42 @@ export const MOVES = {
       };
     },
   },
+  // Counted by rhythm: the camera counts steady repeats of these (after 3 reps) and Auto-detect names them.
+  ...rhythmMoves({
+    highknees: ['High knees', '#d9467a', 'Side-on. Each knee counts as one rep.'],
+    march: ['Marching steps', '#d98aa8', 'Side-on. March in place; each step counts as one rep.'],
+    buttkicks: ['Butt kicks', '#a23f9a', 'Side-on. Each heel counts as one rep.'],
+    armcircles: ['Arm circles', '#3aa0d8', 'Face the camera. Big circles with straight arms; one circle is one rep.'],
+    sidebends: ['Side bends', '#2a9d8f', 'Face the camera. Each bend counts as one rep.'],
+    twists: ['Torso twists', '#139aa3', 'Face the camera. Each turn counts as one rep.'],
+    calfraises: ['Calf raises', '#e0a419', 'Side-on or facing, legs straight. Rise onto your toes and lower.'],
+    toetouches: ['Toe touches', '#c4572a', 'Side-on. Reach your hands down to your feet and stand back up.'],
+    hinge: ['Hip hinges', '#8a5a2b', 'Side-on. Swings, deadlifts and good mornings: fold at the hips and stand tall.'],
+    climbers: ['Mountain climbers', '#e8622c', 'Side-on in a plank. Each knee drive counts as one rep.'],
+    latsteps: ['Lateral steps', '#6e8a1f', 'Face the camera. Band walks, side steps and skaters: each step out is one rep.'],
+    bridges: ['Glute bridges', '#7c5cd6', 'Side-on, lying on your back with knees bent. Lift your hips and lower.'],
+    legraises: ['Leg raises', '#5b6fd9', 'Side-on, lying on your back. Raise straight legs and lower.'],
+    clamshells: ['Clamshells', '#b04aa0', 'Lying on your side, knees bent, facing the camera. Open the top knee and close.'],
+    kickbacks: ['Kickbacks', '#9a5c2e', 'Side-on, on hands and knees. Kick one leg back and up.'],
+    curl: ['Curls', '#4a74d9', 'Side-on or facing. Elbows by your sides; curl your hands up to your shoulders.'],
+    pushdown: ['Triceps pushdowns', '#2f6fdb', 'Side-on. Elbows by your sides; push your hands from chest height down to your thighs.'],
+    triceps: ['Triceps extensions', '#1f8fb8', 'Overhead: elbows up by your head; straighten your arms upwards.'],
+    press: ['Shoulder press', '#e23b2e', 'Facing the camera. Press from your shoulders to straight arms overhead.'],
+    latraise: ['Lateral raises', '#f08c2b', 'Facing the camera. Straight arms out to the sides, up to shoulder height.'],
+    frontraise: ['Front raises', '#d9a21b', 'Side-on. Straight arms forward, up to shoulder height.'],
+    pullapart: ['Pull-aparts', '#2a9d8f', 'Facing the camera. Arms straight in front at shoulder height; pull your hands apart.'],
+    row: ['Rows / chest press', '#5c9c3c', 'Side-on, hands at chest height: pull your elbows back, or press forward.'],
+    facepull: ['Face pulls', '#8f9c4c', 'Side-on. Elbows high; pull your hands towards your face.'],
+    uprightrow: ['Upright rows', '#c0392b', 'Facing the camera. Pull your hands from your waist up to your chest, elbows high.'],
+  }),
   doubleunder: { name: 'Double-unders', color: '#6b7480', manual: true, tip: 'Tap +1, or Done when the set is finished.' },
   run: { name: 'Run', color: '#6b7480', manual: true, tip: 'Tap Done when you get back from the run.' },
   other: { name: 'Other', color: '#6b7480', manual: true, tip: 'Counted by tapping +1 or Done.' },
 };
-export const CAMERA_MOVES = Object.keys(MOVES).filter(k => !MOVES[k].manual);
+// Full-check camera movements (a strict two-position rep), rhythm-counted ones, and tap-counted ones.
+export const CAMERA_MOVES = Object.keys(MOVES).filter(k => !MOVES[k].manual && !MOVES[k].rhythm);
+export const RHYTHM_MOVES = Object.keys(MOVES).filter(k => MOVES[k].rhythm);
+export const TAP_MOVES = Object.keys(MOVES).filter(k => MOVES[k].manual);
 
 // Exponential smoothing of landmarks to cut jitter.
 export class Smoother {
@@ -213,6 +232,12 @@ export class RepDetector {
   // aspect = video width / height, so angles are measured in real proportions.
   update(raw, t, aspect = 1) {
     if (this.def.manual) return { rep: false, phase: null, visible: true, hint: '' };
+    if (this.def.rhythm) {
+      this.rc = this.rc || new PeriodicCounter();
+      const g = this.rc.update(raw.map(p => ({ x: p.x * aspect, y: p.y, visibility: p.visibility })), t);
+      const n = typeof g.reps === 'number' ? g.reps : 0;
+      return { rep: n > 0, count: n, phase: null, visible: true, hint: this.rc.confirmed ? '' : 'Counting starts after 3 steady reps' };
+    }
     const lm = raw.map(p => ({ x: p.x * aspect, y: p.y, visibility: p.visibility }));
     const m = this.def.measure(lm, this.T);
     if (!m) return { rep: false, phase: this.phase, visible: false, hint: 'Step back so your whole body is in view' };
@@ -241,27 +266,60 @@ const s = (key, reps, label) => (label ? { key, reps, label } : { key, reps });
 export const ladder = (counts, keys) => counts.flatMap(n => keys.map(k => s(k, n)));
 
 export const WORKOUTS = [
-  { id: 'cindy', name: 'Cindy', format: 'amrap', minutes: 20, seq: [s('pullup', 5), s('pushup', 10), s('squat', 15)],
+  { id: 'cindy', group: 'Benchmarks', name: 'Cindy', format: 'amrap', minutes: 20, seq: [s('pullup', 5), s('pushup', 10), s('squat', 15)],
     desc: '20-min AMRAP · 5 pull-ups · 10 push-ups · 15 air squats' },
-  { id: 'fran', name: 'Fran', format: 'fortime', minutes: 10, seq: ladder([21, 15, 9], ['thruster', 'pullup']),
+  { id: 'fran', group: 'Benchmarks', name: 'Fran', format: 'fortime', minutes: 10, seq: ladder([21, 15, 9], ['thruster', 'pullup']),
     desc: '21-15-9 for time · thrusters (43/29 kg) · pull-ups · 10-min cap' },
-  { id: 'angie', name: 'Angie', format: 'fortime', minutes: 30,
+  { id: 'angie', group: 'Benchmarks', name: 'Angie', format: 'fortime', minutes: 30,
     seq: [s('pullup', 100), s('pushup', 100), s('situp', 100), s('squat', 100)],
     desc: 'For time · 100 pull-ups · 100 push-ups · 100 sit-ups · 100 squats' },
-  { id: 'chelsea', name: 'Chelsea', format: 'emom', minutes: 30, emomMode: 'all',
+  { id: 'chelsea', group: 'Benchmarks', name: 'Chelsea', format: 'emom', minutes: 30, emomMode: 'all',
     seq: [s('pullup', 5), s('pushup', 10), s('squat', 15)],
     desc: 'EMOM 30 · 5 pull-ups · 10 push-ups · 15 air squats every minute' },
-  { id: 'annie', name: 'Annie', format: 'fortime', minutes: 20, seq: ladder([50, 40, 30, 20, 10], ['doubleunder', 'situp']),
+  { id: 'annie', group: 'Benchmarks', name: 'Annie', format: 'fortime', minutes: 20, seq: ladder([50, 40, 30, 20, 10], ['doubleunder', 'situp']),
     desc: '50-40-30-20-10 for time · double-unders (tap) · sit-ups' },
-  { id: 'murph', name: 'Murph', format: 'fortime', minutes: 70,
+  { id: 'murph', group: 'Benchmarks', name: 'Murph', format: 'fortime', minutes: 70,
     seq: [s('run', 1, 'Run 1 mile'), s('pullup', 100), s('pushup', 200), s('squat', 300), s('run', 1, 'Run 1 mile')],
     desc: 'For time · 1-mile run · 100 pull-ups · 200 push-ups · 300 squats · 1-mile run (unpartitioned)' },
-  { id: 'burpees100', name: '100 Burpees', format: 'fortime', minutes: 15, seq: [s('burpee', 100)],
+  { id: 'burpees100', group: 'Benchmarks', name: '100 Burpees', format: 'fortime', minutes: 15, seq: [s('burpee', 100)],
     desc: '100 burpees for time · 15-min cap' },
-  { id: 'jacks-squats', name: 'Leg Burner', format: 'emom', minutes: 12, emomMode: 'alternate',
+  { id: 'jacks-squats', group: 'Benchmarks', name: 'Leg Burner', format: 'emom', minutes: 12, emomMode: 'alternate',
     seq: [s('lunge', 20), s('squat', 20), s('jack', 40)],
     desc: 'EMOM 12, alternating · 20 lunges · 20 air squats · 40 jumping jacks' },
+
+  // Warm-ups
+  { id: 'wu-full', group: 'Warm-ups', name: 'Full warm-up', format: 'fortime', minutes: 10,
+    seq: [s('jack', 30), s('armcircles', 20), s('squat', 15), s('highknees', 30), s('lunge', 10), s('toetouches', 10), s('twists', 16)] },
+  { id: 'wu-upper', group: 'Warm-ups', name: 'Upper warm-up', format: 'fortime', minutes: 8,
+    seq: [s('armcircles', 20), s('pullapart', 15), s('sidebends', 12), s('twists', 16), s('pushup', 10)] },
+  { id: 'wu-run', group: 'Warm-ups', name: 'Run prep', format: 'fortime', minutes: 8,
+    seq: [s('march', 30), s('highknees', 30), s('buttkicks', 30), s('latsteps', 20), s('lunge', 10), s('calfraises', 20)] },
+  { id: 'wu-hips', group: 'Warm-ups', name: 'Hip mobility', format: 'fortime', minutes: 10,
+    seq: [s('bridges', 15), s('clamshells', 20), s('legraises', 12), s('hinge', 12), s('kickbacks', 20), s('squat', 10)] },
+
+  // Resistance band (Thera-Band) workouts
+  { id: 'band-upper', group: 'Band workouts', name: 'Band upper body', format: 'fortime', minutes: 25, rounds: 3,
+    seq: [s('pullapart', 15, 'Band pull-aparts'), s('row', 12, 'Band rows'), s('press', 12, 'Band overhead press'),
+      s('curl', 12, 'Band curls'), s('pushdown', 12, 'Band pushdowns')] },
+  { id: 'band-lower', group: 'Band workouts', name: 'Band lower body', format: 'fortime', minutes: 25, rounds: 3,
+    seq: [s('squat', 15, 'Banded squats'), s('latsteps', 20, 'Lateral band walks'), s('bridges', 15, 'Banded glute bridges'),
+      s('clamshells', 20, 'Banded clamshells'), s('kickbacks', 20, 'Band kickbacks'), s('hinge', 12, 'Band good mornings')] },
+  { id: 'band-shoulders', group: 'Band workouts', name: 'Band shoulders', format: 'fortime', minutes: 20, rounds: 3,
+    seq: [s('facepull', 15, 'Band face pulls'), s('pullapart', 15, 'Band pull-aparts'), s('latraise', 12, 'Band lateral raises'),
+      s('frontraise', 12, 'Band front raises'), s('uprightrow', 10, 'Band upright rows')] },
+  { id: 'band-arms', group: 'Band workouts', name: 'Band arms', format: 'amrap', minutes: 12,
+    seq: [s('curl', 12, 'Band curls'), s('pushdown', 12, 'Band pushdowns'), s('triceps', 12, 'Band overhead extensions')] },
+  { id: 'band-chest', group: 'Band workouts', name: 'Band push & pull', format: 'emom', minutes: 12, emomMode: 'alternate',
+    seq: [s('row', 15, 'Band chest press'), s('row', 15, 'Band rows'), s('pushup', 10)] },
+
+  // Core
+  { id: 'core-burner', group: 'Core', name: 'Core burner', format: 'emom', minutes: 10, emomMode: 'alternate',
+    seq: [s('climbers', 30), s('situp', 15), s('legraises', 12), s('bridges', 15), s('twists', 20)] },
+  { id: 'core-ladder', group: 'Core', name: 'Core ladder', format: 'fortime', minutes: 15,
+    seq: ladder([20, 15, 10], ['climbers', 'situp', 'legraises']),
+    desc: '20-15-10 for time · mountain climbers · sit-ups · leg raises · 15-min cap' },
 ];
+export const GROUPS = ['Benchmarks', 'Warm-ups', 'Band workouts', 'Core'];
 
 export const FORMAT_NAMES = { amrap: 'AMRAP', fortime: 'For time', emom: 'EMOM', free: 'Auto' };
 export const stepName = st => st.label || (MOVES[st.key] || MOVES.other).name;

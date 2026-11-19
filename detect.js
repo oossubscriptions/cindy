@@ -4,12 +4,11 @@
 // 2. A periodic-motion counter catches any other repeated exercise and names the common ones.
 // 3. FreeSession groups the reps into sets.
 // Pure logic, no DOM: unit-tested in test/detect.test.mjs.
-import { RepDetector, CAMERA_MOVES, MOVES, angle, P, MIN_VIS, clock } from './counter.js';
+import { RepDetector, CAMERA_MOVES, MOVES, clock } from './counter.js';
+import { P, angle, dist, mid, seen, tilt } from './geom.js';
+import { PeriodicCounter } from './rhythm.js';
+export { PeriodicCounter } from './rhythm.js';
 
-const vis = p => (p ? (p.visibility ?? 1) : 0);
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, visibility: Math.min(vis(a), vis(b)) });
-const seen = (lm, ...idx) => idx.every(i => vis(lm[i]) >= MIN_VIS);
 
 export const FREESTYLE = {
   id: 'free', name: 'Auto-detect', format: 'free', minutes: 60, seq: [],
@@ -26,7 +25,7 @@ const GENERIC_QUIET = 6000; // the periodic counter only speaks after this long 
 export class AutoDetector {
   constructor(level = 'standard') {
     this.dets = Object.fromEntries(CAMERA_MOVES.map(k => [k, new RepDetector(k, level)]));
-    this.generic = new PeriodicCounter();
+    this.generic = new PeriodicCounter({ classify: true });
     this.pending = [];
     this.recent = [];       // confirmed known reps: { key, t }
     this.lastKnown = -Infinity;
@@ -37,7 +36,7 @@ export class AutoDetector {
 
   update(raw, t, aspect = 1) {
     const lm = raw.map(p => ({ x: p.x * aspect, y: p.y, visibility: p.visibility }));
-    this.trackLegs(lm);
+    this.trackLegs(lm, t);
     this.trackArms(lm, t);
     let phase = null;
     for (const k of CAMERA_MOVES) {
@@ -48,8 +47,9 @@ export class AutoDetector {
     const reps = this.resolve(t);
     const g = this.generic.update(lm, t);
     if (reps.length) { this.generic.reset(); }
-    else if (g.reps && !this.pending.length && t - this.lastKnown > GENERIC_QUIET) {
-      for (let i = 0; i < g.reps; i++) reps.push({ key: 'other', label: g.name, t });
+    else if (typeof g.reps === 'number' && g.reps && !this.pending.length && t - this.lastKnown > GENERIC_QUIET) {
+      const key = g.key && g.key !== 'other' ? g.key : 'other';
+      for (let i = 0; i < g.reps; i++) reps.push(key === 'other' ? { key, label: 'Other movement', t } : { key, t });
     }
     for (const r of reps) { this.lastName = r.label || MOVES[r.key].name; this.lastKey = r.key; this.lastAt = t; }
     const active = t - this.lastAt < 8000;
@@ -61,12 +61,14 @@ export class AutoDetector {
   }
 
   // Squat vs lunge: lunges have a split stance or very different knee angles at the bottom.
-  trackLegs(lm) {
+  trackLegs(lm, t) {
     if (!seen(lm, ...P.HIP, ...P.KN, ...P.AN)) return;
     const k = [0, 1].map(s => angle(lm[P.HIP[s]], lm[P.KN[s]], lm[P.AN[s]]));
     if (Math.min(...k) > 125) return;
     const leg = [0, 1].map(s => dist(lm[P.HIP[s]], lm[P.KN[s]]) + dist(lm[P.KN[s]], lm[P.AN[s]]));
     const legLen = (leg[0] + leg[1]) / 2 || 0.4;
+    // One foot well off the floor while a knee is bent: high knees, marching or butt kicks, not a squat.
+    if (Math.abs(lm[P.AN[0]].y - lm[P.AN[1]].y) / (legLen / 2) > 0.5) this.liftAt = t;
     this.legs.spread = Math.max(this.legs.spread, dist(lm[P.AN[0]], lm[P.AN[1]]) / legLen);
     this.legs.diff = Math.max(this.legs.diff, Math.abs(k[0] - k[1]));
   }
@@ -79,6 +81,7 @@ export class AutoDetector {
   }
 
   candidate(key, t, lm) {
+    if (key === 'situp' && seen(lm, ...P.SH, ...P.HIP) && tilt(mid(lm[11], lm[12]), mid(lm[23], lm[24])) < 40) return; // torso must come up
     if (key === 'pullup') {
       // A pull-up moves the body up to fixed hands; a press or thruster moves the hands instead.
       const r = k => { const v = this.track.map(x => x[k]); return v.length ? Math.max(...v) - Math.min(...v) : 0; };
@@ -95,6 +98,8 @@ export class AutoDetector {
       return;
     }
     if (key in FAMILY) {
+      // Squats, lunges and thrusters are done upright; lying or on all fours it is something else.
+      if (key !== 'burpee' && seen(lm, ...P.SH, ...P.HIP) && tilt(mid(lm[11], lm[12]), mid(lm[23], lm[24])) < 55) return;
       if (key === 'burpee') this.pending = this.pending.filter(p => !(p.key === 'pushup' && t - p.t < 3000));
       const near = this.pending.find(p => p.key in FAMILY && Math.abs(t - p.t) < MERGE_MS);
       if (near) { if (FAMILY[key] > FAMILY[near.key]) near.key = key; return; }
@@ -114,114 +119,16 @@ export class AutoDetector {
       const p = this.pending.shift();
       let key = p.key;
       if (key === 'squat' || key === 'lunge') {
+        const lifted = p.t - (this.liftAt ?? -Infinity) < 1500;
         key = this.legs.spread > 0.7 || this.legs.diff > 40 ? 'lunge' : 'squat';
         this.legs = { spread: 0, diff: 0 };
+        if (lifted) continue;
       }
       out.push({ key, t: p.t });
       this.recent.push({ key, t: p.t }); if (this.recent.length > 10) this.recent.shift();
       this.lastKnown = t;
     }
     return out;
-  }
-}
-
-// Counts any repeated movement: finds the body signal with the biggest steady swing over the last
-// few seconds and counts its cycles. Needs 3 consistent cycles before it reports (then counts all 3).
-const SIGNALS = { wristY: 0.35, hipY: 0.25, shY: 0.25, elbow: 0.45, knee: 0.45, hip: 0.45 }; // min swing to count
-export class PeriodicCounter {
-  constructor(windowMs = 10000) { this.windowMs = windowMs; this.buf = []; this.reset(); }
-  reset() { this.sig = null; this.state = null; this.cycles = []; this.confirmed = false; this.name = null; }
-
-  features(lm) {
-    if (!seen(lm, ...P.SH, ...P.HIP)) return null;
-    const sh = mid(lm[11], lm[12]), hip = mid(lm[23], lm[24]);
-    const S = dist(sh, hip) || 0.2;
-    const s = { hipY: hip.y / S, shY: sh.y / S };
-    const post = { tilt: Math.atan2(Math.abs(sh.y - hip.y), Math.abs(sh.x - hip.x)) * 180 / Math.PI };
-    if (seen(lm, ...P.WR)) {
-      const wr = mid(lm[15], lm[16]);
-      s.wristY = (wr.y - sh.y) / S;
-      post.overhead = wr.y < lm[P.NOSE].y; post.low = wr.y > sh.y + 0.15 * S;
-    }
-    if (seen(lm, ...P.EL, ...P.WR)) s.elbow = (angle(lm[11], lm[13], lm[15]) + angle(lm[12], lm[14], lm[16])) / 180;
-    if (seen(lm, ...P.KN)) {
-      s.hip = (angle(lm[11], lm[23], lm[25]) + angle(lm[12], lm[24], lm[26])) / 180;
-      if (seen(lm, ...P.AN)) { s.knee = (angle(lm[23], lm[25], lm[27]) + angle(lm[24], lm[26], lm[28])) / 180; post.knee = s.knee * 90; }
-    }
-    return { s, post };
-  }
-
-  update(lm, t) {
-    const f = this.features(lm);
-    if (!f) return { reps: 0 };
-    this.buf.push({ t, ...f });
-    while (this.buf.length && t - this.buf[0].t > this.windowMs) this.buf.shift();
-    if (t - this.buf[0].t < 1500) return { reps: 0 };
-    let best = null, bestScore = 1, lo = 0, hi = 0;
-    for (const [k, need] of Object.entries(SIGNALS)) {
-      const vals = this.buf.map(b => b.s[k]).filter(v => v != null);
-      if (vals.length < this.buf.length * 0.8) continue;
-      const mn = Math.min(...vals), mx = Math.max(...vals), score = (mx - mn) / need;
-      if (score > bestScore) { best = k; bestScore = score; lo = mn; hi = mx; }
-    }
-    if (!best) { this.reset(); return { reps: 0 }; }
-    if (best !== this.sig) { this.reset(); this.sig = best; }
-    const v = f.s[best], m = (lo + hi) / 2, band = (hi - lo) * 0.2;
-    let reps = 0;
-    if (this.state !== 'hi' && v > m + band) {
-      if (this.state === 'lo') {
-        reps = this.onCycle(t);
-        if (reps === 'confirm') reps = this.retroCount(best, m, band); // count the set from its start
-      }
-      this.state = 'hi';
-    } else if (this.state !== 'lo' && v < m - band) this.state = 'lo';
-    return { reps, name: this.name };
-  }
-
-  // Rising crossings over the whole window, with the thresholds just learned.
-  retroCount(sig, m, band) {
-    let st = null, n = 0;
-    for (const b of this.buf) {
-      const v = b.s[sig]; if (v == null) continue;
-      if (st !== 'hi' && v > m + band) { if (st === 'lo') n++; st = 'hi'; } else if (st !== 'lo' && v < m - band) st = 'lo';
-    }
-    return Math.max(n, this.cycles.length);
-  }
-
-  onCycle(t) {
-    const prev = this.cycles[this.cycles.length - 1];
-    const gap = prev == null ? null : t - prev;
-    const lastGap = this.cycles.length > 1 ? prev - this.cycles[this.cycles.length - 2] : null;
-    if (gap != null && (gap < 500 || gap > 8000 || (lastGap && (gap > lastGap * 2.2 || gap < lastGap / 2.2)))) {
-      this.cycles = [t]; this.confirmed = false;
-      return 0;
-    }
-    this.cycles.push(t);
-    if (this.confirmed) return 1;
-    if (this.cycles.length >= 3) {
-      this.confirmed = true;
-      this.name = PeriodicCounter.classify(this.sig, this.buf);
-      return 'confirm';
-    }
-    return 0;
-  }
-
-  // Name the common ones from which signal moves and the posture around it.
-  static classify(sig, buf) {
-    const share = fn => buf.filter(b => fn(b.post)).length / buf.length;
-    const lying = share(p => p.tilt < 35) > 0.6;
-    const standing = share(p => p.tilt > 60) > 0.6;
-    const straightLegs = share(p => p.knee == null || p.knee > 140) > 0.7;
-    const overhead = share(p => p.overhead) > 0.15;
-    const els = buf.map(b => b.s.elbow).filter(v => v != null);
-    const elbowSwing = els.length ? Math.max(...els) - Math.min(...els) : 0; // in units of 180°
-    const arms = sig === 'elbow' || sig === 'wristY';
-    if (arms && overhead && straightLegs && standing) return 'Shoulder press';
-    if (arms && !overhead && standing && elbowSwing > 0.4) return 'Curls';
-    if (sig === 'hip' && standing === false && !lying && straightLegs) return 'Hip hinges';
-    if (sig === 'hip' && lying) return 'Glute bridges';
-    if (sig === 'hipY' && lying) return 'Glute bridges';
-    return 'Other movement';
   }
 }
 
